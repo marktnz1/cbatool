@@ -1,0 +1,2836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cost Benefit Analysis for running a Direct Democracy Hub</title>
+    <!-- Open Graph Meta Tags for Social Media Sharing -->
+    <meta property="og:title" content="Cost Benefit Analysis Direct Democracy Hub">
+    <meta property="og:description" content="Estimate the costs and benefits of running a Direct Democracy Hub in your area.">
+    <meta property="og:image" content="https://storage.googleapis.com/generative-ai-docs/images/cost-benefit-scales.png">
+    <meta property="og:url" content="https://your-app-url.com"> <!-- Replace with your actual app URL -->
+    <meta property="og:type" content="website">
+
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts - Inter for consistent typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* Basic body styling for font and to prevent horizontal scrolling */
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+        /* Hide spin buttons for number inputs for cleaner UI */
+        /* This rule is now less critical as inputs are changed to type="text" */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+    </style>
+</head>
+<body>
+    <!-- The root div where the React application will be mounted -->
+    <div id="root"></div>
+
+    <!-- React and ReactDOM CDNs for core React functionality -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel Standalone for JSX transformation directly in the browser -->
+    <!-- This allows us to write React JSX syntax directly in the script tag -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <!-- The main application script, type="text/babel" tells the browser to use Babel -->
+    <script type="text/babel">
+        // Exchange rates relative to USD (1 USD = X of that currency)
+        // These rates are illustrative and should be updated for real-world accuracy.
+        // NOTE: These rates are now primarily for *displaying converted values* if needed,
+        // not for converting internal state which will now be in the selected currency.
+        const currencyRates = {
+            'USD': 1.00,
+            'CAD': 1.37, // Canadian Dollar
+            'NZD': 1.63, // New Zealand Dollar
+            'GBP': 0.79, // UK Pound Sterling
+            'AUD': 1.51, // Australian Dollar
+            'EUR': 0.92, // Euro
+        };
+
+        // Mapping of country codes to currency codes
+        const countryToCurrencyMap = {
+            'US': 'USD',
+            'CA': 'CAD',
+            'NZ': 'NZD',
+            'GB': 'GBP',
+            'AU': 'AUD',
+            'DE': 'EUR', // Germany for Eurozone
+            'FR': 'EUR', // France for Eurozone
+            'IT': 'EUR', // Italy for Eurozone
+            'ES': 'EUR', // Spain for Eurozone
+            // Add more country-to-currency mappings as needed
+        };
+
+        // Define a constant for the council fixed cost ID
+        const COUNCIL_FIXED_COST_ID = 'fixed-council';
+
+        // Define new constants for the base amount of the "Dealing with councils" fixed cost
+        const DEFAULT_COUNCIL_BASE_COST_USD = 2000;
+        const DEFAULT_COUNCIL_BASE_COST_NZD = 2000; // Assuming same value for NZD, adjust if different
+
+        // Helper function for number formatting with commas and two decimal places
+        const formatNumber = (num) => {
+            return num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        // Helper function for currency formatting with commas and two decimal places
+        // This function now formats the `num` directly, assuming it's already in `currencyCode`
+        const formatCurrency = (num, currencyCode = 'USD') => {
+            return num.toLocaleString(undefined, { style: 'currency', currency: currencyCode, currencyDisplay: 'narrowSymbol', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        // Helper function for Swedish Rounding (Round half to even / Banker's Rounding)
+        const swedishRound = (num) => {
+            const integerPart = Math.floor(num);
+            const fractionalPart = num - integerPart;
+
+            if (fractionalPart === 0.5) {
+                // If fractional part is exactly 0.5, round to the nearest even integer
+                return integerPart % 2 === 0 ? integerPart : integerPart + 1;
+            } else {
+                // Otherwise, round to the nearest integer
+                return Math.round(num);
+            }
+        };
+
+        // Helper function for currency formatting with commas (no cents, Swedish rounding)
+        // This function now formats the `num` directly, assuming it's already in `currencyCode`
+        const formatCurrencyNoCents = (num, currencyCode = 'USD') => {
+            const roundedNum = swedishRound(num);
+            return roundedNum.toLocaleString(undefined, { style: 'currency', currency: currencyCode, currencyDisplay: 'narrowSymbol', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        };
+
+        // Helper function for whole number formatting with commas (Swedish rounding)
+        const formatWholeNumberSwedish = (num) => {
+            const roundedNum = swedishRound(num);
+            return roundedNum.toLocaleString(undefined, { maximumFractionDigits: 0 });
+        };
+
+        // Custom rounding function for councils: round up if fractional part > 0.6, else round down
+        const customRoundForCouncils = (num) => {
+            const decimalPart = num - Math.floor(num);
+            if (decimalPart > 0.6) {
+                return Math.ceil(num);
+            } else {
+                return Math.floor(num);
+            }
+        };
+
+        // Helper to load a value from local storage with a default and optional parser
+        const loadFromLocalStorage = (key, defaultValue, parser = (val) => val) => {
+            try {
+                const storedValue = localStorage.getItem(key);
+                return storedValue !== null ? parser(storedValue) : defaultValue;
+            } catch (e) {
+                console.error(`Error loading ${key} from local storage:`, e);
+                return defaultValue;
+            }
+        };
+
+        // Define default values based on currency (values are now in their respective currencies)
+        const currencyDefaultValues = {
+            'USD': {
+                benefitPerSignup: 5.00,
+                monthlyDonationAmountPerPayer: 5.00,
+                hubAdvertisingRatePer10kPeople: 1500,
+                subscriptionRate: 15.00,
+                conversionRate: 5,
+                councilMonthlyRevenue: 10000,
+                councilBoost: 125,
+                entityName: 'The People ',
+                entityLocation: 'Your Location',
+                components: [
+                    { id: 'comp1', name: 'Email', baseRatio: 30, costPerUnit: 0.10 },
+                    { id: 'comp2', name: 'Volunteer Handouts', baseRatio: 25, costPerUnit: 1.00 },
+                    { id: 'comp3', name: 'Meetings', baseRatio: 10, costPerUnit: 1.00 },
+                    { id: 'comp4', name: 'Referrals', baseRatio: 20, costPerUnit: 0.20 },
+                    { id: 'comp6', name: 'Social Media', baseRatio: 5, costPerUnit: 2.00 },
+                ],
+                // Fixed costs as a function to allow dynamic 'Cost A' based on totalPeopleInArea
+                fixedCosts: (totalPeople) => [
+                    { id: 'fixed1', name: 'Cost A', amount: Math.max(200, totalPeople / 1000) },
+                    { id: 'fixed2', name: 'Cost B', amount: 1500.00 / 6 },
+                    { id: 'fixed3', name: 'Cost C', amount: 200.00 },
+                    { id: 'fixed4', name: 'Cost D', amount: 100.00 },
+                ],
+            },
+            'NZD': {
+                benefitPerSignup: 10.00, // This is 10 NZD, not 10 USD
+                monthlyDonationAmountPerPayer: 5.00,
+                hubAdvertisingRatePer10kPeople: 1500,
+                subscriptionRate: 20.00,
+                conversionRate: 5,
+                councilMonthlyRevenue: 10000,
+                councilBoost: 125,
+                entityName: 'The People ',
+                entityLocation: 'Your Location',
+                components: [
+                    { id: 'comp1', name: 'Email', baseRatio: 30, costPerUnit: 0.07 },
+                    { id: 'comp2', name: 'Volunteer Handouts', baseRatio: 25, costPerUnit: 0.80 },
+                    { id: 'comp3', name: 'Meetings', baseRatio: 10, costPerUnit: 0.80 },
+                    { id: 'comp4', name: 'Referrals', baseRatio: 20, costPerUnit: 0.30 },
+                    { id: 'comp6', name: 'Social Media', baseRatio: 5, costPerUnit: 1.50 },
+                ],
+                // Fixed costs for NZD, with specific amounts (in NZD)
+                fixedCosts: (totalPeople) => [
+                    { id: 'fixed1', name: 'Cost A', amount: 2000 }, // Fixed at $2000 NZD for NZD defaults
+                    { id: 'fixed2', name: 'Cost B', amount: 250 },
+                    { id: 'fixed3', name: 'Cost C', amount: 200 },
+                    { id: 'fixed4', name: 'Cost D', amount: 100 },
+                ],
+            }
+        };
+
+        // Main App component
+        const App = () => {
+            // Function to parse URL parameters
+            const parseUrlParams = React.useCallback(() => {
+                const params = new URLSearchParams(window.location.search);
+                const parsed = {};
+                for (const [key, value] of params.entries()) {
+                    try {
+                        // Decode URI component first, then parse JSON if it looks like an object/array
+                        const decodedValue = decodeURIComponent(value);
+                        if ((decodedValue.startsWith('{') && decodedValue.endsWith('}')) || (decodedValue.startsWith('[') && decodedValue.endsWith(']')) || decodedValue === 'true' || decodedValue === 'false' || !isNaN(decodedValue)) {
+                            parsed[key] = JSON.parse(decodedValue);
+                        } else {
+                            parsed[key] = decodedValue;
+                        }
+                    } catch (e) {
+                        parsed[key] = decodeURIComponent(value);
+                    }
+                }
+                return parsed;
+            }, []);
+
+            // Function to get the pure hardcoded default values for a given currency
+            // This function is used for comparison in generateShareableUrl and for base defaults.
+            const getPureHardcodedDefaultsForCurrency = React.useCallback((currencyCode) => {
+                const defaultsForCurrency = currencyDefaultValues[currencyCode] || currencyDefaultValues['USD'];
+
+                let defaultComponents = JSON.parse(JSON.stringify(defaultsForCurrency.components));
+                const currentSumOfRatios = defaultComponents.reduce((sum, comp) => sum + comp.baseRatio, 0);
+                const scalingFactor = currentSumOfRatios > 0 ? 100 / currentSumOfRatios : 1;
+                defaultComponents = defaultComponents.map(comp => ({
+                    ...comp,
+                    baseRatio: parseFloat((comp.baseRatio * scalingFactor).toFixed(2)),
+                }));
+
+                const defaultTotalPeopleForFixedCosts = 200000; // Use a fixed default for comparison purposes
+                let defaultFixedCosts = JSON.parse(JSON.stringify(defaultsForCurrency.fixedCosts(defaultTotalPeopleForFixedCosts)));
+
+                // Manually add the 'Dealing with councils' fixed cost if it's not 'never' for the default
+                // This is for the *default* state, which assumes councilMonthsOption is '3' and numberOfCouncils is calculated.
+                const defaultNumberOfCouncils = customRoundForCouncils(defaultTotalPeopleForFixedCosts / 200000);
+                const defaultCouncilMonthsOption = '3'; // Hardcoded default for comparison
+
+                // Add 'Dealing with councils' to the default fixed costs if applicable
+                if (defaultCouncilMonthsOption !== 'never' && defaultNumberOfCouncils > 0) {
+                    const councilBaseCost = currencyCode === 'NZD' ? DEFAULT_COUNCIL_BASE_COST_NZD : DEFAULT_COUNCIL_BASE_COST_USD;
+                    defaultFixedCosts.push({
+                        id: COUNCIL_FIXED_COST_ID,
+                        name: 'Dealing with councils',
+                        amount: councilBaseCost * defaultNumberOfCouncils,
+                    });
+                }
+
+                return {
+                    benefitPerSignup: defaultsForCurrency.benefitPerSignup,
+                    monthlyDonationAmountPerPayer: defaultsForCurrency.monthlyDonationAmountPerPayer,
+                    hubAdvertisingRatePer10kPeople: defaultsForCurrency.hubAdvertisingRatePer10kPeople,
+                    subscriptionRate: defaultsForCurrency.subscriptionRate,
+                    conversionRate: defaultsForCurrency.conversionRate,
+                    councilMonthlyRevenue: defaultsForCurrency.councilMonthlyRevenue,
+                    councilBoost: defaultsForCurrency.councilBoost,
+                    components: defaultComponents,
+                    fixedCosts: defaultFixedCosts,
+                    entityName: defaultsForCurrency.entityName,
+                    entityLocation: defaultsForCurrency.entityLocation,
+                    totalPeopleInArea: defaultTotalPeopleForFixedCosts, // Include this default for comparison
+                    targetPercentage: 65, // Hardcoded default
+                    timeframeMonths: 6, // Hardcoded default
+                    numberOfCouncils: defaultNumberOfCouncils, // Calculated default
+                    councilMonthsOption: defaultCouncilMonthsOption, // Hardcoded default
+                    percentageOfTargetPayingDonations: 10, // Hardcoded default
+                };
+            }, []);
+
+            // Logic for initial state, prioritizing URL > Local Storage > Currency Defaults
+            const initialStatesLogic = React.useCallback((currentSelectedCurrency, urlParams) => {
+                console.log('--- initialStatesLogic running ---');
+                console.log('Initial selectedCurrency passed to initialStatesLogic:', currentSelectedCurrency);
+
+                // 1. Start with pure hardcoded defaults for the selected currency
+                const hardcodedDefaults = getPureHardcodedDefaultsForCurrency(currentSelectedCurrency);
+                let initialState = { ...hardcodedDefaults };
+                console.log('Hardcoded defaults:', initialState);
+
+                // 2. Layer Local Storage on top of hardcoded defaults
+                // For currency-dependent values, if they are NOT in local storage, they will take the new currency's default.
+                // If they ARE in local storage (meaning user changed them), they will be loaded as-is and interpreted in the new currency.
+                initialState.totalPeopleInArea = loadFromLocalStorage('totalPeopleInArea', initialState.totalPeopleInArea, parseFloat);
+                initialState.targetPercentage = loadFromLocalStorage('targetPercentage', initialState.targetPercentage, parseFloat);
+                initialState.timeframeMonths = loadFromLocalStorage('timeframeMonths', initialState.timeframeMonths, parseFloat);
+                initialState.benefitPerSignup = loadFromLocalStorage('benefitPerSignup', initialState.benefitPerSignup, parseFloat);
+                initialState.monthlyDonationAmountPerPayer = loadFromLocalStorage('monthlyDonationAmountPerPayer', initialState.monthlyDonationAmountPerPayer, parseFloat);
+                initialState.percentageOfTargetPayingDonations = loadFromLocalStorage('percentageOfTargetPayingDonations', initialState.percentageOfTargetPayingDonations, parseFloat);
+                initialState.hubAdvertisingRatePer10kPeople = loadFromLocalStorage('hubAdvertisingRatePer10kPeople', initialState.hubAdvertisingRatePer10kPeople, parseFloat);
+                initialState.subscriptionRate = loadFromLocalStorage('subscriptionRate', initialState.subscriptionRate, parseFloat);
+                initialState.conversionRate = loadFromLocalStorage('conversionRate', initialState.conversionRate, parseFloat);
+                initialState.numberOfCouncils = loadFromLocalStorage('numberOfCouncils', initialState.numberOfCouncils, parseFloat);
+                initialState.councilMonthsOption = loadFromLocalStorage('councilMonthsOption', initialState.councilMonthsOption);
+                initialState.councilMonthlyRevenue = loadFromLocalStorage('councilMonthlyRevenue', initialState.councilMonthlyRevenue, parseFloat);
+                initialState.councilBoost = loadFromLocalStorage('councilBoost', initialState.councilBoost, parseFloat);
+                initialState.components = loadFromLocalStorage('components', initialState.components, JSON.parse);
+                initialState.fixedCosts = loadFromLocalStorage('fixedCosts', initialState.fixedCosts, JSON.parse);
+                initialState.entityName = loadFromLocalStorage('entityName', initialState.entityName);
+                initialState.entityLocation = loadFromLocalStorage('entityLocation', initialState.entityLocation);
+                console.log('After Local Storage:', initialState);
+
+
+                // 3. Layer URL parameters on top of local storage (highest precedence)
+                // For each parameter in the URL, if it exists, use it.
+                if (urlParams.totalPeopleInArea !== undefined) initialState.totalPeopleInArea = parseFloat(urlParams.totalPeopleInArea);
+                if (urlParams.targetPercentage !== undefined) initialState.targetPercentage = parseFloat(urlParams.targetPercentage);
+                if (urlParams.timeframeMonths !== undefined) initialState.timeframeMonths = parseFloat(urlParams.timeframeMonths);
+                if (urlParams.numberOfCouncils !== undefined) initialState.numberOfCouncils = parseFloat(urlParams.numberOfCouncils);
+                if (urlParams.councilMonthsOption !== undefined) initialState.councilMonthsOption = urlParams.councilMonthsOption;
+                if (urlParams.entityName !== undefined) initialState.entityName = urlParams.entityName;
+                if (urlParams.entityLocation !== undefined) initialState.entityLocation = urlParams.entityLocation;
+                if (urlParams.benefitPerSignup !== undefined) initialState.benefitPerSignup = parseFloat(urlParams.benefitPerSignup);
+                if (urlParams.monthlyDonationAmountPerPayer !== undefined) initialState.monthlyDonationAmountPerPayer = parseFloat(urlParams.monthlyDonationAmountPerPayer);
+                if (urlParams.hubAdvertisingRatePer10kPeople !== undefined) initialState.hubAdvertisingRatePer10kPeople = parseFloat(urlParams.hubAdvertisingRatePer10kPeople);
+                if (urlParams.subscriptionRate !== undefined) initialState.subscriptionRate = parseFloat(urlParams.subscriptionRate);
+                if (urlParams.conversionRate !== undefined) initialState.conversionRate = parseFloat(urlParams.conversionRate);
+                if (urlParams.councilMonthlyRevenue !== undefined) initialState.councilMonthlyRevenue = parseFloat(urlParams.councilMonthlyRevenue);
+                if (urlParams.councilBoost !== undefined) initialState.councilBoost = parseFloat(urlParams.councilBoost);
+                if (urlParams.percentageOfTargetPayingDonations !== undefined) initialState.percentageOfTargetPayingDonations = parseFloat(urlParams.percentageOfTargetPayingDonations);
+                // For complex objects, URL params directly override
+                if (urlParams.components !== undefined) initialState.components = urlParams.components;
+                if (urlParams.fixedCosts !== undefined) initialState.fixedCosts = urlParams.fixedCosts;
+                console.log('After URL Params:', initialState);
+
+
+                // Recalculate numberOfCouncils if totalPeopleInArea was loaded from URL or Local Storage and numberOfCouncils was not explicitly set
+                if (urlParams.numberOfCouncils === undefined) { // Only recalculate if URL didn't specify it
+                    initialState.numberOfCouncils = customRoundForCouncils(initialState.totalPeopleInArea / 200000);
+                }
+
+
+                // Adjust council-related values if 'never' option is selected (this should happen after all loading)
+                if (initialState.councilMonthsOption === 'never') {
+                    initialState.councilBoost = 100; // Set boost to 100% (no boost)
+                    initialState.councilMonthlyRevenue = 0; // Set revenue to 0
+                }
+
+                initialState.selectedCurrency = currentSelectedCurrency; // Ensure selectedCurrency is part of the state
+                initialState.userMessage = '';
+
+                console.log('Final initial state calculated:', initialState);
+                return initialState;
+            }, [getPureHardcodedDefaultsForCurrency, parseUrlParams]);
+
+            // State for the currently selected currency (independent from main state for initial load detection)
+            const [initialSelectedCurrency, setInitialSelectedCurrency] = React.useState('USD');
+
+            // Effect to detect user's country and set initial currency
+            React.useEffect(() => {
+                const detectCurrency = async () => {
+                    const savedCurrency = localStorage.getItem('selectedCurrency');
+                    const urlParams = parseUrlParams();
+
+                    // Priority 1: URL parameter for currency
+                    if (urlParams.selectedCurrency && currencyRates[urlParams.selectedCurrency]) {
+                        setInitialSelectedCurrency(urlParams.selectedCurrency);
+                        return;
+                    }
+
+                    // Priority 2: Local storage for currency
+                    if (savedCurrency && currencyRates[savedCurrency]) {
+                        setInitialSelectedCurrency(savedCurrency);
+                        return;
+                    }
+
+                    // Priority 3: Geo-IP lookup
+                    try {
+                        const response = await fetch('https://ip-api.com/json/?fields=countryCode');
+                        const data = await response.json();
+                        if (data.countryCode) {
+                            const currencyFromCountry = countryToCurrencyMap[data.countryCode];
+                            if (currencyFromCountry && currencyRates[currencyFromCountry]) {
+                                setInitialSelectedCurrency(currencyFromCountry);
+                                localStorage.setItem('selectedCurrency', currencyFromCountry);
+                            } else {
+                                setInitialSelectedCurrency('USD');
+                                localStorage.setItem('selectedCurrency', 'USD');
+                            }
+                        } else {
+                            setInitialSelectedCurrency('USD');
+                            localStorage.setItem('selectedCurrency', 'USD');
+                        }
+                    } catch (error) {
+                        console.error('Error fetching IP data:', error);
+                        setInitialSelectedCurrency('USD');
+                        localStorage.setItem('selectedCurrency', 'USD');
+                    }
+                };
+
+                detectCurrency();
+            }, [parseUrlParams]); // Depend on parseUrlParams to re-run if URL changes
+
+
+            // Main state initialization using initialStatesLogic and initialSelectedCurrency
+            const [state, setState] = React.useState(() => initialStatesLogic(initialSelectedCurrency, parseUrlParams()));
+
+            // Effect to re-initialize state when initialSelectedCurrency changes (e.g., after detection)
+            React.useEffect(() => {
+                // This effect will trigger a re-initialization of the state
+                // when initialSelectedCurrency changes, ensuring that defaults
+                // for the new currency are applied correctly, while preserving
+                // user-modified values from local storage.
+                setState(initialStatesLogic(initialSelectedCurrency, parseUrlParams()));
+            }, [initialSelectedCurrency, initialStatesLogic, parseUrlParams]);
+
+
+            // Destructure state for easier access
+            const {
+                components,
+                timeframeMonths,
+                fixedCosts,
+                totalPeopleInArea,
+                targetPercentage,
+                benefitPerSignup,
+                monthlyDonationAmountPerPayer,
+                percentageOfTargetPayingDonations,
+                hubAdvertisingRatePer10kPeople,
+                subscriptionRate,
+                conversionRate,
+                numberOfCouncils,
+                councilMonthsOption,
+                councilMonthlyRevenue,
+                councilBoost,
+                userMessage,
+                selectedCurrency,
+                entityName,
+                entityLocation,
+            } = state;
+
+            // Effect to log state changes for debugging
+            React.useEffect(() => {
+                console.log('--- State updated after currency change or other action ---');
+                console.log('Current selectedCurrency in state:', selectedCurrency);
+                console.log('Current benefitPerSignup in state (in selected currency):', benefitPerSignup);
+                console.log('Current components in state:', components);
+                console.log('Current fixedCosts in state:', fixedCosts);
+            }, [selectedCurrency, benefitPerSignup, components, fixedCosts]);
+
+
+            // State for displaying formatted totalPeopleInArea
+            const [displayTotalPeople, setDisplayTotalPeople] = React.useState(() => formatWholeNumberSwedish(state.totalPeopleInArea));
+
+            // New state to hold display values for fixed cost monthly amounts and totals (using a Map for better performance with dynamic keys)
+            const [displayFixedCostAmounts, setDisplayFixedCostAmounts] = React.useState(new Map());
+            const [displayFixedCostTotals, setDisplayFixedCostTotals] = React.useState(new Map());
+
+            // --- Usage History States (for Undo/Redo) ---
+            const [history, setHistory] = React.useState([]);
+            const [historyPointer, setHistoryPointer] = React.useState(-1);
+            const [generatedUrl, setGeneratedUrl] = React.useState('');
+
+            // Refs for managing cursor position
+            const inputRefs = React.useRef({});
+            const lastSelection = React.useRef({});
+
+            // Effect to restore cursor position after render
+            React.useEffect(() => {
+                for (const id in lastSelection.current) {
+                    const input = inputRefs.current[id];
+                    if (input && document.activeElement === input && (input.type === 'text' || input.type === 'search' || input.type === 'url' || input.type === 'tel' || input.type === 'password')) {
+                        const { start, end } = lastSelection.current[id];
+                        const newStart = Math.min(start, input.value.length);
+                        const newEnd = Math.min(end, input.value.length);
+                        input.setSelectionRange(newStart, newEnd);
+                    }
+                }
+                lastSelection.current = {};
+            });
+
+            // Local states for validation messages and their timeouts
+            const [totalPeopleInAreaError, setTotalPeopleInAreaError] = React.useState('');
+            const totalPeopleInAreaErrorTimeoutRef = React.useRef(null);
+
+            const [targetPercentageError, setTargetPercentageError] = React.useState('');
+            const targetPercentageErrorTimeoutRef = React.useRef(null);
+
+            const [timeframeMonthsError, setTimeframeMonthsError] = React.useState('');
+            const timeframeMonthsErrorTimeoutRef = React.useRef(null);
+
+            const [benefitPerSignupError, setBenefitPerSignupError] = React.useState('');
+            const benefitPerSignupErrorTimeoutRef = React.useRef(null);
+
+            const [monthlyDonationAmountPerPayerError, setMonthlyDonationAmountPerPayerError] = React.useState('');
+            const monthlyDonationAmountPerPayerErrorTimeoutRef = React.useRef(null);
+
+            const [percentageOfTargetPayingDonationsError, setPercentageOfTargetPayingDonationsError] = React.useState('');
+            const percentageOfTargetPayingDonationsErrorTimeoutRef = React.useRef(null);
+
+            const [hubAdvertisingRatePer10kPeopleError, setHubAdvertisingRatePer10kPeopleError] = React.useState('');
+            const hubAdvertisingRatePer10kPeopleErrorTimeoutRef = React.useRef(null);
+
+            const [subscriptionRateError, setSubscriptionRateError] = React.useState('');
+            const subscriptionRateErrorTimeoutRef = React.useRef(null);
+
+            const [conversionRateError, setConversionRateError] = React.useState('');
+            const conversionRateErrorTimeoutRef = React.useRef(null);
+
+            const [numberOfCouncilsError, setNumberOfCouncilsError] = React.useState('');
+            const numberOfCouncilsErrorTimeoutRef = React.useRef(null);
+
+            const [councilMonthlyRevenueError, setCouncilMonthlyRevenueError] = React.useState('');
+            const councilMonthlyRevenueErrorTimeoutRef = React.useRef(null);
+
+            const [councilBoostError, setCouncilBoostError] = React.useState('');
+            const councilBoostErrorTimeoutRef = React.useRef(null);
+
+            const [componentRatioError, setComponentRatioError] = React.useState({});
+            const componentRatioErrorTimeoutRefs = React.useRef({});
+
+            const [costPerUnitError, setCostPerUnitError] = React.useState({});
+            const costPerUnitErrorTimeoutRefs = React.useRef({});
+
+            const [fixedCostAmountError, setFixedCostAmountError] = React.useState({});
+            const fixedCostAmountErrorTimeoutRefs = React.useRef({});
+
+            const [fixedCostTotalOverTimeframeError, setFixedCostTotalOverTimeframeError] = React.useState({});
+            const fixedCostTotalOverTimeframeErrorTimeoutRefs = React.useRef({});
+
+
+            // Helper to convert a value from the selected currency to USD (for cross-currency comparisons if needed)
+            const convertSelectedCurrencyToUSD = React.useCallback((valueInSelectedCurrency) => {
+                if (!currencyRates[selectedCurrency]) {
+                    console.warn(`Currency rate for ${selectedCurrency} not found. Defaulting to USD.`);
+                    return valueInSelectedCurrency; // Treat as USD if rate not found
+                }
+                return valueInSelectedCurrency / currencyRates[selectedCurrency];
+            }, [selectedCurrency]);
+
+            // Helper to convert a USD value to the selected currency (for display of USD-derived totals)
+            const convertUSDToSelectedCurrency = React.useCallback((usdValue) => {
+                if (!currencyRates[selectedCurrency]) {
+                    console.warn(`Currency rate for ${selectedCurrency} not found. Defaulting to USD.`);
+                    return usdValue; // Treat as USD if rate not found
+                }
+                return usdValue * currencyRates[selectedCurrency];
+            }, [selectedCurrency]);
+
+
+            // --- Derived Calculations (Dynamic, based on current state) ---
+            const finalMonthTargetedPeople = (targetPercentage / 100) * totalPeopleInArea;
+            const monthlyRampUpIncrement = timeframeMonths > 0 ? finalMonthTargetedPeople / timeframeMonths : 0;
+            const displayTargetForTimeframe = finalMonthTargetedPeople;
+
+            const totalBaseRatio = components.reduce((sum, comp) => sum + comp.baseRatio, 0);
+
+            const calculatedComponents = components.map(comp => {
+                let calculatedQuantity = 0;
+                if (totalBaseRatio > 0) {
+                    calculatedQuantity = (comp.baseRatio / totalBaseRatio) * finalMonthTargetedPeople;
+                }
+                // costPerUnit is already in selectedCurrency
+                const totalCost = calculatedQuantity * comp.costPerUnit;
+                return { ...comp, calculatedQuantity, totalCost };
+            });
+
+            const currentCalculatedQuantitySum = calculatedComponents.reduce((sum, comp) => sum + comp.calculatedQuantity, 0);
+            const overallVariableCost = calculatedComponents.reduce((sum, comp) => sum + comp.totalCost, 0);
+
+            // Dynamically manage the "Dealing with councils" fixed cost (MEMOIZED)
+            const currentFixedCosts = React.useMemo(() => {
+                let costs = [...fixedCosts]; // Start with the saved fixed costs
+
+                // Remove any existing 'Dealing with councils' cost to prevent duplicates
+                costs = costs.filter(cost => cost.id !== COUNCIL_FIXED_COST_ID);
+
+                // Conditionally add the 'Dealing with councils' cost
+                // It should be added only if:
+                // 1. councilMonthsOption is not 'never'
+                // 2. numberOfCouncils is greater than 0
+                // The councilBoost only affects revenue, not the presence of this fixed cost.
+                if (councilMonthsOption !== 'never' && numberOfCouncils > 0) {
+                    // Get the base amount from the new constants based on selected currency
+                    const councilBaseCost = selectedCurrency === 'NZD' ? DEFAULT_COUNCIL_BASE_COST_NZD : DEFAULT_COUNCIL_BASE_COST_USD;
+
+                    costs.push({
+                        id: COUNCIL_FIXED_COST_ID,
+                        name: 'Dealing with councils',
+                        // Multiply the fixed cost by the number of councils (amount is already in selected currency)
+                        amount: councilBaseCost * numberOfCouncils,
+                    });
+                }
+                return costs;
+            }, [fixedCosts, councilMonthsOption, numberOfCouncils, selectedCurrency]);
+
+
+            const totalFixedCostsPerMonth = currentFixedCosts.reduce((sum, item) => item.amount + sum, 0);
+            const totalMonthlyCost = overallVariableCost + totalFixedCostsPerMonth;
+            const totalCostOverTimeframe = totalMonthlyCost * timeframeMonths;
+            const totalVariableCostOverTimeframe = overallVariableCost * timeframeMonths;
+            const totalFixedCostOverTimeframe = totalFixedCostsPerMonth * timeframeMonths;
+            const averageCostPerUnit = currentCalculatedQuantitySum > 0 ? overallVariableCost / currentCalculatedQuantitySum : 0;
+            // totalBenefitsToCommunity is now calculated using benefitPerSignup which is in selectedCurrency
+            const totalBenefitsToCommunity = benefitPerSignup * totalPeopleInArea;
+
+            const generateMonthlyRevenueData = () => {
+                const data = [];
+                let runningCumulativeTarget = 0;
+                let totalDonations = 0;
+                let totalHubAdvertising = 0;
+                let totalSubscriptions = 0;
+                let totalCouncilRevenue = 0; // New variable for total council revenue
+
+                const boostFactor = councilBoost / 100; // Convert percentage to a multiplier
+
+                // Determine the month council revenue starts
+                let councilStartMonth = Infinity;
+                if (councilMonthsOption === '0') { // "Prior to launch (0 months)"
+                    councilStartMonth = 1;
+                } else if (councilMonthsOption !== 'never') {
+                    const monthsElapsed = parseFloat(councilMonthsOption);
+                    councilStartMonth = monthsElapsed + 1; // Revenue starts from the (monthsElapsed + 1)th month
+                }
+
+                for (let month = 1; month <= timeframeMonths; month++) {
+                    runningCumulativeTarget = month * monthlyRampUpIncrement;
+
+                    // Apply boost to other revenues
+                    // monthlyDonationAmountPerPayer is already in selectedCurrency
+                    const monthlyDonation = ((percentageOfTargetPayingDonations / 100) * runningCumulativeTarget * monthlyDonationAmountPerPayer) * boostFactor;
+                    // Hub Advertising calculation now includes ramp-up cumulative target, hubAdvertisingRatePer10kPeople is in selectedCurrency
+                    const monthlyHubAdvertising = (hubAdvertisingRatePer10kPeople / 10000) * runningCumulativeTarget * boostFactor;
+                    // subscriptionRate is already in selectedCurrency
+                    const monthlySubscription = ((conversionRate / 100) * runningCumulativeTarget * subscriptionRate) * boostFactor;
+
+                    // Calculate council revenue for the current month if applicable
+                    let currentMonthCouncilRevenue = 0;
+                    if (month >= councilStartMonth && councilStartMonth !== Infinity && numberOfCouncils > 0) {
+                        // councilMonthlyRevenue is already in selectedCurrency
+                        currentMonthCouncilRevenue = numberOfCouncils * councilMonthlyRevenue;
+                    }
+
+                    totalDonations += monthlyDonation;
+                    totalHubAdvertising += monthlyHubAdvertising;
+                    totalSubscriptions += monthlySubscription;
+                    totalCouncilRevenue += currentMonthCouncilRevenue; // Accumulate council revenue
+
+                    data.push({
+                        month,
+                        cumulativeTarget: runningCumulativeTarget,
+                        donations: monthlyDonation,
+                        hubAdvertising: monthlyHubAdvertising,
+                        subscriptions: monthlySubscription,
+                        councilRevenue: currentMonthCouncilRevenue, // Add monthly council revenue
+                    });
+                }
+                return { data, totalDonations, totalHubAdvertising, totalSubscriptions, totalCouncilRevenue };
+            };
+
+            const { data: monthlyRevenueData, totalDonations, totalHubAdvertising, totalSubscriptions, totalCouncilRevenue } = generateMonthlyRevenueData();
+
+            const totalDonationsOverTimeframe = totalDonations;
+            const totalHubAdvertisingOverTimeframe = totalHubAdvertising;
+            const totalSubscriptionsOverTimeframe = totalSubscriptions;
+            const totalCouncilRevenueOverTimeframe = totalCouncilRevenue; // Total council revenue over timeframe
+
+            const donationsMonthly = timeframeMonths > 0 ? totalDonationsOverTimeframe / timeframeMonths : 0;
+            const hubAdvertisingMonthlyCalculated = timeframeMonths > 0 ? totalHubAdvertisingOverTimeframe / timeframeMonths : 0;
+            const subscriptionsMonthlyCalculated = timeframeMonths > 0 ? totalSubscriptionsOverTimeframe / timeframeMonths : 0;
+            const councilRevenueMonthlyCalculated = timeframeMonths > 0 ? totalCouncilRevenueOverTimeframe / timeframeMonths : 0; // Average monthly council revenue
+
+
+            const totalMonthlyRevenue = donationsMonthly + hubAdvertisingMonthlyCalculated + subscriptionsMonthlyCalculated + councilRevenueMonthlyCalculated; // Include council revenue
+            const averageFixedCostPerUnit = finalMonthTargetedPeople > 0 ? totalFixedCostsPerMonth / finalMonthTargetedPeople : 0;
+            const averageCombinedCostPerUnit = averageCostPerUnit + averageFixedCostPerUnit;
+            const combinedIncomeAndBenefits = (totalMonthlyRevenue * timeframeMonths) + totalBenefitsToCommunity;
+            const netBenefit = combinedIncomeAndBenefits - totalCostOverTimeframe;
+
+            // New calculation for Net Financial Benefit to Hub
+            const netFinancialBenefitToHub = (totalMonthlyRevenue * timeframeMonths) - totalCostOverTimeframe;
+
+
+            // Function to get a snapshot of the current application state for undo/URL generation
+            const getCurrentStateSnapshot = React.useCallback(() => ({
+                components: JSON.parse(JSON.stringify(components)),
+                fixedCosts: JSON.parse(JSON.stringify(fixedCosts)),
+                totalPeopleInArea,
+                targetPercentage,
+                timeframeMonths,
+                benefitPerSignup,
+                monthlyDonationAmountPerPayer,
+                percentageOfTargetPayingDonations,
+                hubAdvertisingRatePer10kPeople,
+                subscriptionRate,
+                conversionRate,
+                numberOfCouncils,
+                councilMonthsOption,
+                councilMonthlyRevenue,
+                councilBoost,
+                selectedCurrency,
+                entityName, // Include new state variables
+                entityLocation, // Include new state variables
+            }), [components, fixedCosts, totalPeopleInArea, targetPercentage, timeframeMonths,
+                benefitPerSignup, monthlyDonationAmountPerPayer, percentageOfTargetPayingDonations,
+                hubAdvertisingRatePer10kPeople, subscriptionRate, conversionRate,
+                numberOfCouncils, councilMonthsOption, councilMonthlyRevenue, councilBoost,
+                selectedCurrency, entityName, entityLocation]);
+
+            // Function to load a state from a snapshot
+            const loadStateFromSnapshot = React.useCallback((snapshot) => {
+                setState(snapshot);
+                // Also update the displayTotalPeople when loading a snapshot
+                setDisplayTotalPeople(formatWholeNumberSwedish(snapshot.totalPeopleInArea));
+            }, []);
+
+            // Effect to initialize history with the default state on first render
+            React.useEffect(() => {
+                // Ensure initialStatesLogic is called with the *current* selectedCurrency for the default snapshot
+                const initialSnapshot = initialStatesLogic(selectedCurrency, parseUrlParams());
+                setHistory([initialSnapshot]);
+                setHistoryPointer(0);
+                // eslint-disable-next-line react-hooks/exhaustive-deps
+            }, [selectedCurrency, parseUrlParams]);
+
+            // Effect to initialize or update displayFixedCostTotals and displayFixedCostAmounts when relevant state changes
+            React.useEffect(() => {
+                const newDisplayTotals = new Map();
+                const newDisplayAmounts = new Map();
+                currentFixedCosts.forEach(cost => {
+                    // cost.amount is already in selectedCurrency
+                    newDisplayTotals.set(cost.id, formatCurrency(cost.amount * timeframeMonths, selectedCurrency));
+                    newDisplayAmounts.set(cost.id, cost.amount.toFixed(2));
+                });
+                setDisplayFixedCostTotals(newDisplayTotals);
+                setDisplayFixedCostAmounts(newDisplayAmounts);
+            }, [currentFixedCosts, timeframeMonths, selectedCurrency]);
+
+
+            // Function to save a new snapshot to history
+            const saveNewSnapshot = React.useCallback(() => {
+                const currentSnapshot = getCurrentStateSnapshot();
+                setHistory(prevHistory => {
+                    const newHistory = prevHistory.slice(0, historyPointer + 1);
+                    newHistory.push(currentSnapshot);
+                    // Limit history to a few states to prevent excessive memory usage
+                    if (newHistory.length > 3) {
+                        newHistory.shift(); // Remove the oldest state
+                    }
+                    setHistoryPointer(newHistory.length - 1);
+                    return newHistory;
+                });
+            }, [getCurrentStateSnapshot, historyPointer]);
+
+            // Undo function
+            const undo = React.useCallback(() => {
+                if (historyPointer > 0) {
+                    const newPointer = historyPointer - 1;
+                    const previousState = history[newPointer];
+                    loadStateFromSnapshot(previousState);
+                    setHistoryPointer(newPointer);
+                }
+            }, [history, historyPointer, loadStateFromSnapshot]);
+
+            // Reset function
+            const resetForm = React.useCallback(() => {
+                const defaultState = initialStatesLogic(selectedCurrency, parseUrlParams()); // Pass selectedCurrency to get correct defaults
+                setState(defaultState);
+                setHistory([defaultState]);
+                setHistoryPointer(0);
+                setDisplayTotalPeople(formatWholeNumberSwedish(defaultState.totalPeopleInArea));
+                localStorage.clear(); // Clear local storage on full reset
+                setGeneratedUrl('');
+                setDisplayFixedCostAmounts(new Map());
+                setDisplayFixedCostTotals(new Map());
+            }, [initialStatesLogic, selectedCurrency, parseUrlParams]);
+
+
+            // Determine the styling and message for the total base ratio display
+            let ratioStatusClass = '';
+            let ratioMessage = '';
+            const ratioDifference = Math.abs(totalBaseRatio - 100);
+
+            if (totalBaseRatio === 100) {
+                ratioStatusClass = 'text-green-400';
+                ratioMessage = '100% 😊';
+            } else if (ratioDifference <= 25) {
+                ratioStatusClass = 'text-orange-400 animate-pulse';
+                ratioMessage = `${totalBaseRatio.toFixed(2)}% �`;
+            } else {
+                ratioStatusClass = 'text-red-400';
+                ratioMessage = `${totalBaseRatio.toFixed(2)}% 😞 - change your base ratios to equal 100%`;
+            }
+
+            React.useEffect(() => {
+                if (totalBaseRatio === 100 && userMessage === 'Total base ratio cannot exceed 100. Value adjusted.') {
+                    setState(prevState => ({ ...prevState, userMessage: '' }));
+                }
+            }, [totalBaseRatio, userMessage]);
+
+
+            // Generic function to set and clear local error messages
+            const setAndClearError = React.useCallback((setErrorState, timeoutRef, message, id = null) => {
+                if (id) {
+                    setErrorState(prev => ({ ...prev, [id]: message }));
+                    if (timeoutRef.current[id]) {
+                        clearTimeout(timeoutRef.current[id]);
+                    }
+                    timeoutRef.current[id] = setTimeout(() => {
+                        setErrorState(prev => {
+                            const newState = { ...prev };
+                            delete newState[id];
+                            return newState;
+                        });
+                        timeoutRef.current[id] = null;
+                    }, 4000);
+                } else {
+                    setErrorState(message);
+                    if (timeoutRef.current) {
+                        clearTimeout(timeoutRef.current);
+                    }
+                    timeoutRef.current = setTimeout(() => {
+                        setErrorState('');
+                        timeoutRef.current = null;
+                    }, 4000);
+                }
+            }, []);
+
+            // Generic numeric input validation and parsing
+            // Now, `isCurrency` flag means the input value is *already* in the selected currency
+            const parseAndValidateNumericInput = React.useCallback((inputValue, fieldName, min = -Infinity, max = Infinity, isPercentage = false) => {
+                if (inputValue === '') {
+                    return { value: 0, error: null };
+                }
+
+                const isValidNumeric = /^-?\d*\.?\d*$/.test(inputValue);
+                if (!isValidNumeric) {
+                    return { value: null, error: `Please enter a valid number for "${fieldName}". Only digits and a single decimal point are allowed.` };
+                }
+
+                let value = parseFloat(inputValue);
+                if (isNaN(value)) {
+                    return { value: null, error: `Invalid number entered for "${fieldName}". Please use numeric values.` };
+                }
+
+                if (isPercentage) {
+                    if (value < 0 || value > 100) {
+                        return { value: null, error: `"${fieldName}" must be between 0 and 100%.` };
+                    }
+                } else {
+                    if (value < min) {
+                        return { value: null, error: `"${fieldName}" must be at least ${min}.` };
+                    }
+                    if (value > max && max !== Infinity) {
+                        return { value: null, error: `"${fieldName}" cannot exceed ${max}.` };
+                    }
+                }
+
+                // Value is already in the selected currency, no conversion needed for internal state
+                return { value: value, error: null };
+            }, []);
+
+
+            // --- Handlers ---
+            // Generic focus handler to select all text on focus
+            const handleInputFocus = (e) => {
+                const input = e.target;
+                if (input && (input.type === 'text' || input.type === 'search' || input.type === 'url' || input.type === 'tel' || input.type === 'password')) {
+                    input.select();
+                }
+                const id = input.id;
+                if (id === 'totalPeopleInArea') setAndClearError(setTotalPeopleInAreaError, totalPeopleInAreaErrorTimeoutRef, '');
+                if (id === 'targetPercentage') setAndClearError(setTargetPercentageError, targetPercentageErrorTimeoutRef, '');
+                if (id === 'timeframeMonths') setAndClearError(setTimeframeMonthsError, timeframeMonthsErrorTimeoutRef, '');
+                if (id === 'benefitPerSignup') setAndClearError(setBenefitPerSignupError, benefitPerSignupErrorTimeoutRef, '');
+                if (id === 'monthlyDonationAmountPerPayer') setAndClearError(setMonthlyDonationAmountPerPayerError, monthlyDonationAmountPerPayerErrorTimeoutRef, '');
+                if (id === 'percentageOfTargetPayingDonations') setAndClearError(setPercentageOfTargetPayingDonationsError, percentageOfTargetPayingDonationsErrorTimeoutRef, '');
+                if (id === 'hubAdvertisingRatePer10kPeople') setAndClearError(setHubAdvertisingRatePer10kPeopleError, hubAdvertisingRatePer10kPeopleErrorTimeoutRef, '');
+                if (id === 'subscriptionRate') setAndClearError(setSubscriptionRateError, subscriptionRateErrorTimeoutRef, '');
+                if (id === 'conversionRate') setAndClearError(setConversionRateError, conversionRateErrorTimeoutRef, '');
+                if (id === 'numberOfCouncils') setAndClearError(setNumberOfCouncilsError, numberOfCouncilsErrorTimeoutRef, '');
+                if (id === 'councilMonthlyRevenue') setAndClearError(setCouncilMonthlyRevenueError, councilMonthlyRevenueErrorTimeoutRef, '');
+                if (id === 'councilBoost') setAndClearError(setCouncilBoostError, councilBoostErrorTimeoutRef, '');
+                if (id.startsWith('ratio-')) setAndClearError(setComponentRatioError, componentRatioErrorTimeoutRefs, '', id);
+                if (id.startsWith('cost-')) setAndClearError(setCostPerUnitError, costPerUnitErrorTimeoutRefs, '', id);
+                if (id.startsWith('fixed-amount-')) setAndClearError(setFixedCostAmountError, fixedCostAmountErrorTimeoutRefs, '', id);
+                if (id.startsWith('fixed-total-')) setAndClearError(setFixedCostTotalOverTimeframeError, fixedCostTotalOverTimeframeErrorTimeoutRefs, '', id);
+            };
+
+            // General handler for input changes that should trigger a snapshot save and local storage update
+            const handleStateChangeAndSave = (propertyName, value, e = null) => {
+                if (e && e.target && e.target.id) {
+                    lastSelection.current[e.target.id] = {
+                        start: e.target.selectionStart,
+                        end: e.target.selectionEnd,
+                    };
+                }
+
+                setState(prevState => ({ ...prevState, [propertyName]: value }));
+                // Store directly, as value is already in selected currency
+                localStorage.setItem(propertyName, JSON.stringify(value));
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleTotalPeopleInAreaChange = (e) => {
+                const inputValue = e.target.value;
+                const inputId = e.target.id;
+
+                lastSelection.current[inputId] = {
+                    start: e.target.selectionStart,
+                    end: e.target.selectionEnd,
+                };
+
+                setDisplayTotalPeople(inputValue);
+
+                // No `isCurrency` flag needed here, as this is not a currency field
+                const { value: numericValue, error } = parseAndValidateNumericInput(inputValue, 'Total number of people in Hub area or organization', 0);
+
+                if (error) {
+                    setAndClearError(setTotalPeopleInAreaError, totalPeopleInAreaErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setTotalPeopleInAreaError, totalPeopleInAreaErrorTimeoutRef, '');
+                }
+
+                if (numericValue !== null) {
+                    setState(prevState => {
+                        const newTotalPeople = numericValue;
+                        // Get defaults for the current currency (these are in the selected currency)
+                        const defaultsForCurrency = currencyDefaultValues[prevState.selectedCurrency] || currencyDefaultValues['USD'];
+                        // Find the default Cost A for the current currency, using the new totalPeople
+                        const defaultFixedCostA = defaultsForCurrency.fixedCosts(newTotalPeople).find(cost => cost.id === 'fixed1')?.amount;
+
+                        const updatedFixedCosts = prevState.fixedCosts.map(cost => {
+                            if (cost.id === 'fixed1') {
+                                return { ...cost, amount: defaultFixedCostA };
+                            }
+                            return cost;
+                        });
+                        localStorage.setItem('totalPeopleInArea', newTotalPeople.toString());
+                        localStorage.setItem('fixedCosts', JSON.stringify(updatedFixedCosts));
+                        const newNumberOfCouncils = customRoundForCouncils(newTotalPeople / 200000);
+                        localStorage.setItem('numberOfCouncils', newNumberOfCouncils.toString());
+                        return {
+                            ...prevState,
+                            totalPeopleInArea: newTotalPeople,
+                            fixedCosts: updatedFixedCosts,
+                            numberOfCouncils: newNumberOfCouncils
+                        };
+                    });
+                }
+            };
+
+            const handleTotalPeopleInAreaBlur = () => {
+                setDisplayTotalPeople(formatWholeNumberSwedish(totalPeopleInArea));
+                saveNewSnapshot();
+            };
+
+            const handleTotalPeopleInAreaFocus = (e) => {
+                setDisplayTotalPeople(totalPeopleInArea.toString());
+                handleInputFocus(e);
+            };
+
+
+            const handleTargetPercentageChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Target Percentage', 0, 100, true);
+                if (error) {
+                    setAndClearError(setTargetPercentageError, targetPercentageErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setTargetPercentageError, targetPercentageErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('targetPercentage', value, e);
+                }
+            };
+
+            const handleTimeframeChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Timeframe (Months)', 0);
+                if (error) {
+                    setAndClearError(setTimeframeMonthsError, timeframeMonthsErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setTimeframeMonthsError, timeframeMonthsErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('timeframeMonths', value, e);
+                }
+            };
+
+            const handleBenefitPerSignupChange = (e) => {
+                // No `isCurrency` flag needed in parseAndValidateNumericInput, as value is already in selected currency
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Benefit Per Population Member', 0, Infinity, false);
+                if (error) {
+                    setAndClearError(setBenefitPerSignupError, benefitPerSignupErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setBenefitPerSignupError, benefitPerSignupErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('benefitPerSignup', value, e);
+                }
+            };
+
+            const handleMonthlyDonationAmountPerPayerChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Average Donation', 0, Infinity, false);
+                if (error) {
+                    setAndClearError(setMonthlyDonationAmountPerPayerError, monthlyDonationAmountPerPayerErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setMonthlyDonationAmountPerPayerError, monthlyDonationAmountPerPayerErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('monthlyDonationAmountPerPayer', value, e);
+                }
+            };
+
+            const handlePercentageOfTargetPayingDonationsChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Percent donating', 0, 100, true);
+                if (error) {
+                    setAndClearError(setPercentageOfTargetPayingDonationsError, percentageOfTargetPayingDonationsErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setPercentageOfTargetPayingDonationsError, percentageOfTargetPayingDonationsErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('percentageOfTargetPayingDonations', value, e);
+                }
+            };
+
+            const handleHubAdvertisingRatePer10kPeopleChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Hub Advertising Rate', 0, Infinity, false);
+                if (error) {
+                    setAndClearError(setHubAdvertisingRatePer10kPeopleError, hubAdvertisingRatePer10kPeopleErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setHubAdvertisingRatePer10kPeopleError, hubAdvertisingRatePer10kPeopleErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('hubAdvertisingRatePer10kPeople', value, e);
+                }
+            };
+
+            const handleSubscriptionRateChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Subscription Rate', 0, Infinity, false);
+                if (error) {
+                    setAndClearError(setSubscriptionRateError, subscriptionRateErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setSubscriptionRateError, subscriptionRateErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('subscriptionRate', value, e);
+                }
+            };
+
+            const handleConversionRateChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Conversion Rate', 0, 100, true);
+                if (error) {
+                    setAndClearError(setConversionRateError, conversionRateErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setConversionRateError, conversionRateErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('conversionRate', value, e);
+                }
+            };
+
+            const handleNumberOfCouncilsChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Number of Councils', 0);
+                if (error) {
+                    setAndClearError(setNumberOfCouncilsError, numberOfCouncilsErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setNumberOfCouncilsError, numberOfCouncilsErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('numberOfCouncils', Math.round(value), e);
+                }
+            };
+
+            const handleCouncilMonthsOptionChange = (e) => {
+                const newOption = e.target.value;
+                setState(prevState => {
+                    let newCouncilBoost = prevState.councilBoost;
+                    let newCouncilMonthlyRevenue = prevState.councilMonthlyRevenue;
+
+                    if (newOption === 'never') {
+                        // When "never", reset boost to 100% and revenue to 0, using the current selected currency's default
+                        newCouncilBoost = 100;
+                        newCouncilMonthlyRevenue = 0;
+                    } else {
+                        // When selecting a month, ensure the revenue is based on the current currency's default
+                        const defaultsForCurrency = currencyDefaultValues[prevState.selectedCurrency] || currencyDefaultValues['USD'];
+                        newCouncilMonthlyRevenue = defaultsForCurrency.councilMonthlyRevenue;
+                        newCouncilBoost = defaultsForCurrency.councilBoost;
+                    }
+
+                    localStorage.setItem('councilMonthsOption', newOption);
+                    localStorage.setItem('councilBoost', newCouncilBoost.toString());
+                    localStorage.setItem('councilMonthlyRevenue', newCouncilMonthlyRevenue.toString());
+
+                    return {
+                        ...prevState,
+                        councilMonthsOption: newOption,
+                        councilBoost: newCouncilBoost,
+                        councilMonthlyRevenue: newCouncilMonthlyRevenue,
+                    };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleCouncilMonthlyRevenueChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Council Monthly Revenue', 0, Infinity, false);
+                if (error) {
+                    setAndClearError(setCouncilMonthlyRevenueError, councilMonthlyRevenueErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setCouncilMonthlyRevenueError, councilMonthlyRevenueErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('councilMonthlyRevenue', value, e);
+                }
+            };
+
+            const handleCouncilBoostChange = (e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, 'Council Boost', 0);
+                if (error) {
+                    setAndClearError(setCouncilBoostError, councilBoostErrorTimeoutRef, error);
+                    return;
+                } else {
+                    setAndClearError(setCouncilBoostError, councilBoostErrorTimeoutRef, '');
+                }
+                if (value !== null) {
+                    handleStateChangeAndSave('councilBoost', value, e);
+                }
+            };
+
+
+            const handleComponentNameChange = (id, e) => {
+                const newName = e.target.value;
+                if (e && e.target && e.target.id) {
+                    lastSelection.current[e.target.id] = {
+                        start: e.target.selectionStart,
+                        end: e.target.selectionEnd,
+                    };
+                }
+
+                setState(prevState => {
+                    const updatedComponents = prevState.components.map(comp =>
+                        comp.id === id ? { ...comp, name: newName } : comp
+                    );
+                    localStorage.setItem('components', JSON.stringify(updatedComponents));
+                    return { ...prevState, components: updatedComponents };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleComponentRatioChange = (id, e) => {
+                const { value: parsedValue, error } = parseAndValidateNumericInput(e.target.value, `Base Ratio for ${components.find(c => c.id === id)?.name || 'component'}`, 0);
+
+                if (error) {
+                    setAndClearError(setComponentRatioError, componentRatioErrorTimeoutRefs, error, id);
+                    return;
+                } else {
+                    setAndClearError(setComponentRatioError, componentRatioErrorTimeoutRefs, '', id);
+                }
+
+                let value = parsedValue;
+
+                if (e && e.target && e.target.id) {
+                    lastSelection.current[e.target.id] = {
+                        start: e.target.selectionStart,
+                        end: e.target.selectionEnd,
+                    };
+                }
+
+                setState(prevState => {
+                    const updatedComponents = prevState.components.map(comp =>
+                        comp.id === id ? { ...comp, baseRatio: value } : comp
+                    );
+
+                    const otherComponentsSum = updatedComponents
+                        .filter(comp => comp.id !== id)
+                        .reduce((sum, comp) => sum + comp.baseRatio, 0);
+
+                    let newRatio = value;
+                    let newUserMessage = '';
+                    if (otherComponentsSum + newRatio > 100) {
+                        newRatio = 100 - otherComponentsSum;
+                        newRatio = Math.max(0, newRatio);
+                        newUserMessage = 'Total base ratio cannot exceed 100. Value adjusted.';
+                    }
+
+                    const finalComponents = updatedComponents.map(comp =>
+                        comp.id === id ? { ...comp, baseRatio: newRatio } : comp
+                    );
+                    localStorage.setItem('components', JSON.stringify(finalComponents));
+                    return {
+                        ...prevState,
+                        components: finalComponents,
+                        userMessage: newUserMessage,
+                    };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleCostPerUnitChange = (id, e) => {
+                const { value, error } = parseAndValidateNumericInput(e.target.value, `Cost Per Unit for ${components.find(c => c.id === id)?.name || 'component'}`, 0, Infinity, false);
+                if (error) {
+                    setAndClearError(setCostPerUnitError, costPerUnitErrorTimeoutRefs, error, id);
+                    return;
+                } else {
+                    setAndClearError(setCostPerUnitError, costPerUnitErrorTimeoutRefs, '', id);
+                }
+                if (value !== null) {
+                    if (e && e.target && e.target.id) {
+                        lastSelection.current[e.target.id] = {
+                            start: e.target.selectionStart,
+                            end: e.target.selectionEnd,
+                        };
+                    }
+                    setState(prevState => {
+                        const updatedComponents = prevState.components.map(comp =>
+                            comp.id === id ? { ...comp, costPerUnit: value } : comp
+                        );
+                        localStorage.setItem('components', JSON.stringify(updatedComponents));
+                        return { ...prevState, components: updatedComponents };
+                    });
+                    setTimeout(() => {
+                        saveNewSnapshot();
+                    }, 0);
+                }
+            };
+
+            const addComponent = () => {
+                setState(prevState => {
+                    const currentTotalBaseRatio = prevState.components.reduce((sum, comp) => sum + comp.baseRatio, 0);
+                    const remainingRatio = 100 - currentTotalBaseRatio;
+
+                    if (remainingRatio <= 0) {
+                        return { ...prevState, userMessage: 'Cannot add new component: Total base ratio is already 100.' };
+                    }
+
+                    const newId = `comp${prevState.components.length + 1}-${Date.now()}`;
+                    const newComponents = [
+                        ...prevState.components,
+                        {
+                            id: newId,
+                            name: `New Component ${prevState.components.length + 1}`,
+                            baseRatio: Math.max(0, remainingRatio),
+                            costPerUnit: 1.00, // Default cost in the currently selected currency
+                        },
+                    ];
+                    localStorage.setItem('components', JSON.stringify(newComponents));
+                    return {
+                        ...prevState,
+                        components: newComponents,
+                        userMessage: '',
+                    };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const removeComponent = (id) => {
+                setState(prevState => {
+                    const newComponents = prevState.components.filter(comp => comp.id !== id);
+                    localStorage.setItem('components', JSON.stringify(newComponents));
+                    return { ...prevState, components: newComponents };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleFixedCostNameChange = (id, e) => {
+                const newName = e.target.value;
+                if (e && e.target && e.target.id) {
+                    lastSelection.current[e.target.id] = {
+                        start: e.target.selectionStart,
+                        end: e.target.selectionEnd,
+                    };
+                }
+                setState(prevState => {
+                    const updatedFixedCosts = prevState.fixedCosts.map(item =>
+                        item.id === id ? { ...item, name: newName } : item
+                    );
+                    localStorage.setItem('fixedCosts', JSON.stringify(updatedFixedCosts));
+                    return { ...prevState, fixedCosts: updatedFixedCosts };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleFixedCostAmountChange = (id, e) => {
+                const inputValue = e.target.value;
+                setDisplayFixedCostAmounts(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(id, inputValue);
+                    return newMap;
+                });
+                if (e && e.target && e.target.id) {
+                    lastSelection.current[e.target.id] = {
+                        start: e.target.selectionStart,
+                        end: e.target.selectionEnd,
+                    };
+                }
+            };
+
+            const handleFixedCostAmountBlur = (id) => {
+                const inputValue = displayFixedCostAmounts.get(id);
+                // No `isCurrency` flag needed, as value is already in selected currency
+                const { value, error } = parseAndValidateNumericInput(inputValue, `Monthly Amount for ${currentFixedCosts.find(f => f.id === id)?.name || 'fixed cost'}`, 0, Infinity, false);
+
+                if (error) {
+                    setAndClearError(setFixedCostAmountError, fixedCostAmountErrorTimeoutRefs, error, id);
+                    const currentItem = currentFixedCosts.find(f => f.id === id);
+                    if (currentItem) {
+                        setDisplayFixedCostAmounts(prev => {
+                            const newMap = new Map(prev);
+                            newMap.set(id, currentItem.amount.toFixed(2));
+                            return newMap;
+                        });
+                    }
+                    return;
+                } else {
+                    setAndClearError(setFixedCostAmountError, fixedCostAmountErrorTimeoutRefs, '', id);
+                }
+
+                if (value !== null) {
+                    setState(prevState => {
+                        const updatedFixedCosts = prevState.fixedCosts.map(item =>
+                            item.id === id ? { ...item, amount: value } : item
+                        );
+                        localStorage.setItem('fixedCosts', JSON.stringify(updatedFixedCosts));
+                        return { ...prevState, fixedCosts: updatedFixedCosts };
+                    });
+                    setDisplayFixedCostAmounts(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(id, value.toFixed(2));
+                        return newMap;
+                    });
+                    saveNewSnapshot();
+                }
+            };
+
+            const handleFixedCostAmountFocus = (id, e) => {
+                const item = currentFixedCosts.find(f => f.id === id);
+                if (item) {
+                    setDisplayFixedCostAmounts(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(id, item.amount.toString());
+                        return newMap;
+                    });
+                }
+                handleInputFocus(e);
+            };
+
+            const handleFixedCostTotalOverTimeframeChange = (id, e) => {
+                const inputValue = e.target.value;
+                setDisplayFixedCostTotals(prev => {
+                    const newMap = new Map(prev);
+                    newMap.set(id, inputValue);
+                    return newMap;
+                });
+
+                if (e && e.target && e.target.id) {
+                    lastSelection.current[e.target.id] = {
+                        start: e.target.selectionStart,
+                        end: e.target.selectionEnd,
+                    };
+                }
+            };
+
+            const handleFixedCostTotalOverTimeframeBlur = (id) => {
+                const inputValue = displayFixedCostTotals.get(id);
+                // No `isCurrency` flag needed, as value is already in selected currency
+                const { value: totalValueInSelectedCurrency, error } = parseAndValidateNumericInput(inputValue, `Total over Timeframe for ${currentFixedCosts.find(f => f.id === id)?.name || 'fixed cost'}`, 0, Infinity, false);
+
+                if (error) {
+                    setAndClearError(setFixedCostTotalOverTimeframeError, fixedCostTotalOverTimeframeErrorTimeoutRefs, error, id);
+                    const currentItem = currentFixedCosts.find(f => f.id === id);
+                    if (currentItem) {
+                        setDisplayFixedCostTotals(prev => {
+                            const newMap = new Map(prev);
+                            newMap.set(id, formatCurrency(currentItem.amount * timeframeMonths, selectedCurrency));
+                            return newMap;
+                        });
+                    }
+                    return;
+                } else {
+                    setAndClearError(setFixedCostTotalOverTimeframeError, fixedCostTotalOverTimeframeErrorTimeoutRefs, '', id);
+                }
+
+                if (totalValueInSelectedCurrency !== null) {
+                    setState(prevState => {
+                        const updatedFixedCosts = prevState.fixedCosts.map(item => {
+                            let newAmount = 0;
+                            if (timeframeMonths > 0) {
+                                newAmount = totalValueInSelectedCurrency / timeframeMonths;
+                            }
+                            return item.id === id ? { ...item, amount: newAmount } : item;
+                        });
+                        localStorage.setItem('fixedCosts', JSON.stringify(updatedFixedCosts));
+                        return { ...prevState, fixedCosts: updatedFixedCosts };
+                    });
+                    setDisplayFixedCostTotals(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(id, formatCurrency(totalValueInSelectedCurrency, selectedCurrency));
+                        return newMap;
+                    });
+                    saveNewSnapshot();
+                }
+            };
+
+            const handleFixedCostTotalOverTimeframeFocus = (id, e) => {
+                const item = currentFixedCosts.find(f => f.id === id);
+                if (item) {
+                    setDisplayFixedCostTotals(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(id, (item.amount * timeframeMonths).toString());
+                        return newMap;
+                    });
+                }
+                handleInputFocus(e);
+            };
+
+
+            const addFixedCost = () => {
+                setState(prevState => {
+                    const newId = `fixed${prevState.fixedCosts.length + 1}-${Date.now()}`;
+                    const newFixedCosts = [
+                        ...prevState.fixedCosts,
+                        { id: newId, name: `Cost ${String.fromCharCode(65 + prevState.fixedCosts.length)}`, amount: 10.00 }, // Default cost in currently selected currency
+                    ];
+                    localStorage.setItem('fixedCosts', JSON.stringify(newFixedCosts));
+                    return { ...prevState, fixedCosts: newFixedCosts };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const removeFixedCost = (id) => {
+                setState(prevState => {
+                    const newFixedCosts = prevState.fixedCosts.filter(item => item.id !== id);
+                    localStorage.setItem('fixedCosts', JSON.stringify(newFixedCosts));
+                    return { ...prevState, fixedCosts: newFixedCosts };
+                });
+                setTimeout(() => {
+                    saveNewSnapshot();
+                }, 0);
+            };
+
+            const handleCurrencyChange = (e) => {
+                const newCurrency = e.target.value;
+
+                console.log('--- handleCurrencyChange initiated ---');
+                console.log('New currency selected:', newCurrency);
+
+                // Update selectedCurrency in local storage immediately
+                localStorage.setItem('selectedCurrency', newCurrency);
+
+                // Update the initialSelectedCurrency state. This will trigger the useEffect
+                // that calls initialStatesLogic, which will then correctly load
+                // values from URL params, then local storage, then new currency defaults.
+                setInitialSelectedCurrency(newCurrency);
+            };
+
+            // New handlers for Entity Name and Location
+            const handleEntityNameChange = (e) => {
+                handleStateChangeAndSave('entityName', e.target.value, e);
+            };
+
+            const handleEntityLocationChange = (e) => {
+                handleStateChangeAndSave('entityLocation', e.target.value, e);
+            };
+
+            // Function to generate the mailto link with all variables
+            const generateMailtoLink = () => {
+                const recipient = 'calculation@we-all-decide.org';
+                const subject = encodeURIComponent('Cost Benefit Tool Calculation');
+                let body = 'Hello We All Decide, we were just working things out with your cost benefit tool and had the following questions/feedback...\n\n';
+                body += '----------------------------------------------------\n\n';
+                body += 'Below are all the variables we were using:\n\n';
+
+                // Add main input variables (values are now in the selected currency)
+                body += `Entity Name: ${entityName}\n`;
+                body += `Entity Location: ${entityLocation}\n`;
+                body += `Total People in Area: ${totalPeopleInArea}\n`;
+                body += `Target Percentage: ${targetPercentage}%\n`;
+                body += `Timeframe (Months): ${timeframeMonths}\n`;
+                body += `Benefit Per Population Member (${selectedCurrency}): ${benefitPerSignup}\n`;
+                body += `Monthly Donation Amount Per Payer (${selectedCurrency}): ${monthlyDonationAmountPerPayer}\n`;
+                body += `Percentage of Target Paying Donations: ${percentageOfTargetPayingDonations}%\n`;
+                body += `Hub Advertising Rate Per 10k People (${selectedCurrency}): ${hubAdvertisingRatePer10kPeople}\n`;
+                body += `Subscription Rate (${selectedCurrency}): ${subscriptionRate}\n`;
+                body += `Conversion Rate: ${conversionRate}%\n`;
+                body += `Number of Councils: ${numberOfCouncils}\n`;
+                body += `Council Months Option: ${councilMonthsOption}\n`;
+                body += `Council Monthly Revenue (${selectedCurrency}): ${councilMonthlyRevenue}\n`;
+                body += `Council Boost: ${councilBoost}%\n`;
+                body += `Selected Currency: ${selectedCurrency}\n\n`;
+
+                // Add components (variable costs)
+                body += 'Components (Variable Costs):\n';
+                components.forEach(comp => {
+                    body += `  - ${comp.name}: Base Ratio ${comp.baseRatio}%, Cost Per Unit (${selectedCurrency}) ${comp.costPerUnit}\n`;
+                });
+                body += '\n';
+
+                // Add fixed costs
+                body += 'Fixed Costs:\n';
+                fixedCosts.forEach(cost => {
+                    body += `  - ${cost.name}: Monthly Amount (${selectedCurrency}) ${cost.amount}\n`;
+                });
+                body += '\n';
+
+                return `mailto:${recipient}?subject=${subject}&body=${encodeURIComponent(body)}`;
+            };
+
+            // Function to generate URL with current state, only including changed values
+            const generateShareableUrl = async () => {
+                const currentSnapshot = getCurrentStateSnapshot();
+                // Get the pure hardcoded default state for the *currently selected* currency for comparison
+                // This ensures we only include parameters that deviate from the initial hardcoded defaults.
+                const defaultStateForComparison = getPureHardcodedDefaultsForCurrency(selectedCurrency);
+
+                const params = new URLSearchParams();
+
+                // Always include selectedCurrency
+                params.append('selectedCurrency', encodeURIComponent(currentSnapshot.selectedCurrency));
+
+                for (const key in currentSnapshot) {
+                    // Skip selectedCurrency as it's handled above
+                    if (key === 'selectedCurrency') continue;
+
+                    const currentValue = currentSnapshot[key];
+                    const defaultValue = defaultStateForComparison[key];
+
+                    // Handle arrays/objects (components, fixedCosts)
+                    if (Array.isArray(currentValue) || (typeof currentValue === 'object' && currentValue !== null)) {
+                        // Deep compare objects/arrays by stringifying them
+                        if (JSON.stringify(currentValue) !== JSON.stringify(defaultValue)) {
+                            params.append(key, encodeURIComponent(JSON.stringify(currentValue)));
+                        }
+                    } else if (typeof currentValue === 'number') {
+                        let areEqual = false;
+                        if (typeof defaultValue === 'number') {
+                            // Compare numbers by their fixed-point string representation for consistency
+                            areEqual = currentValue.toFixed(2) === defaultValue.toFixed(2);
+                        } else {
+                            // If defaultValue is not a number (e.g., undefined or null), they are different
+                            areEqual = false;
+                        }
+
+                        if (!areEqual) {
+                            params.append(key, encodeURIComponent(currentValue));
+                        }
+                    } else if (currentValue !== defaultValue) {
+                        // Handle other primitive types (strings, booleans, null, undefined)
+                        // This handles entityName, entityLocation, councilMonthsOption, etc.
+                        // These are encoded directly without JSON.stringify, so no extra quotes.
+                        params.append(key, encodeURIComponent(currentValue));
+                    }
+                }
+
+                const newUrl = `${window.location.protocol}//${window.location.host}${window.location.pathname}?${params.toString()}`;
+                setGeneratedUrl(newUrl);
+
+                // Copy to clipboard logic
+                const tempInput = document.createElement('textarea');
+                tempInput.value = newUrl;
+                tempInput.style.position = 'absolute';
+                tempInput.style.left = '-9999px';
+                tempInput.style.top = '0';
+                document.body.appendChild(tempInput);
+                tempInput.select();
+
+                try {
+                    const success = document.execCommand('copy');
+                    if (success) {
+                        alert('URL copied to clipboard!');
+                    } else {
+                        // Fallback to Clipboard API
+                        await navigator.clipboard.writeText(newUrl);
+                        alert('URL copied to clipboard!');
+                    }
+                } catch (err) {
+                    console.error('Failed to copy URL:', err);
+                    alert('Could not copy URL to clipboard. Please copy it manually from the text field below.');
+                } finally {
+                    document.body.removeChild(tempInput);
+                }
+            };
+
+            // Function to select and copy the generated URL
+            const selectAndCopyUrl = () => {
+                const urlInput = document.getElementById('generated-url-input');
+                if (urlInput) {
+                    urlInput.select();
+                    urlInput.setSelectionRange(0, 99999);
+
+                    try {
+                        const success = document.execCommand('copy');
+                        if (success) {
+                            alert('URL copied to clipboard!');
+                        } else {
+                            navigator.clipboard.writeText(urlInput.value).then(() => {
+                                alert('URL copied to clipboard!');
+                            }).catch(err => {
+                                console.error('Failed to copy using Clipboard API:', err);
+                                alert('Could not copy URL to clipboard. Please copy it manually.');
+                            });
+                        }
+                    } catch (err) {
+                        console.error('Failed to copy using execCommand:', err);
+                        navigator.clipboard.writeText(urlInput.value).then(() => {
+                            alert('URL copied to clipboard!');
+                        }).catch(err => {
+                            console.error('Failed to copy using Clipboard API:', err);
+                            alert('Could not copy URL to clipboard. Please copy it manually.');
+                        });
+                    }
+                }
+            };
+
+
+            // Determine the hyperlink based on selected currency
+            const contactUsLink = selectedCurrency === 'NZD' ? 'https://ddnz.org' : 'https://we-all-decide.org';
+
+            // Determine copyright text and link based on selected currency
+            const copyrightLink = selectedCurrency === 'NZD' ? 'https://ddnz.org' : 'https://we-all-decide.org';
+            const copyrightText = selectedCurrency === 'NZD' ? 'Direct Democracy in New Zealand' : 'Copyright We All Decide';
+
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 p-4 font-inter text-gray-100 flex items-center justify-center">
+                    <div className="bg-white bg-opacity-10 backdrop-blur-lg rounded-xl shadow-2xl p-8 w-full max-w-5xl border border-gray-300 border-opacity-20 relative">
+                        {/* Title and Logo */}
+                        <div className="flex items-center justify-center mb-4">
+                            <a href="https://we-all-decide.org" target="_blank" rel="noopener noreferrer" className="mr-4">
+                                {/* Inline SVG for the logo */}
+                                <svg className="w-24 h-24 sm:w-32 sm:h-32 rounded-full shadow-lg" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+                                    <circle cx="50" cy="50" r="45" fill="#A020F0" stroke="#ffffff" strokeWidth="2" />
+                                    <text x="50" y="60" fontFamily="Inter, sans-serif" fontSize="40" fontWeight="bold" fill="#ffffff" textAnchor="middle" dominantBaseline="middle">DD</text>
+                                </svg>
+                            </a>
+                            <h1 className="text-4xl font-extrabold text-center text-white drop-shadow-lg">
+                                Cost Benefit Analysis for running a Direct Democracy Hub
+                            </h1>
+                        </div>
+
+                        {/* Subtitle with Entity Name and Location */}
+                        <p className="text-xl text-center mb-4 text-gray-200">
+                            Cost Estimation for <span className="font-semibold text-yellow-300">{entityName}</span> in <span className="font-semibold text-yellow-300">{entityLocation}</span>
+                        </p>
+
+                        {/* General Subtitle */}
+                        <p className="text-lg text-center mb-6 text-gray-200">
+                            This is a cost benefit analysis ESTIMATION tool. Managers are ultimately responsible for getting these numbers right, it is purely for estimation guidance only. Please contact us <a href={contactUsLink} target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:underline">{contactUsLink.replace('https://', '')}</a> to view hub terms and conditions.
+                        </p>
+
+                        {/* Currency Selector and Control Buttons */}
+                        <div className="flex flex-col sm:flex-row justify-between items-center mb-8 gap-4 p-4 bg-white bg-opacity-15 rounded-lg shadow-inner border border-gray-300 border-opacity-30">
+                            {/* Currency Selector */}
+                            <div className="flex items-center gap-2">
+                                <label htmlFor="currency-select" className="text-lg font-semibold text-white">Currency:</label>
+                                <select
+                                    id="currency-select"
+                                    value={selectedCurrency}
+                                    onChange={handleCurrencyChange}
+                                    onFocus={handleInputFocus}
+                                    ref={el => inputRefs.current['currency-select'] = el}
+                                    className="p-2 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                >
+                                    {Object.keys(currencyRates).map(code => (
+                                        <option key={code} value={code}>{code}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Undo and Reset Buttons */}
+                            <div className="flex space-x-2">
+                                <button
+                                    onClick={undo}
+                                    disabled={historyPointer <= 0}
+                                    className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Undo
+                                </button>
+                                <button
+                                    onClick={resetForm}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                >
+                                    Reset
+                                </button>
+                                {/* Mailto Link Button */}
+                                <a
+                                    href={generateMailtoLink()}
+                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-center"
+                                >
+                                    Send Feedback
+                                </a>
+                                {/* Generate URL Button */}
+                                <button
+                                    onClick={generateShareableUrl}
+                                    className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-green-500 flex items-center justify-center"
+                                    title="Copies the variables that are currently in use on this tool into a URL so you can share this exact data with others"
+                                >
+                                    Generate Shareable URL
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Generated URL Display */}
+                        {generatedUrl && (
+                            <div className="mb-4 p-3 bg-gray-800 bg-opacity-70 rounded-lg text-white text-center text-sm break-all flex items-center">
+                                <span className="mr-2">Share URL:</span>
+                                <input
+                                    type="text"
+                                    id="generated-url-input"
+                                    value={generatedUrl}
+                                    readOnly
+                                    onFocus={handleInputFocus}
+                                    ref={el => inputRefs.current['generated-url-input'] = el}
+                                    className="flex-grow p-1 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                    onClick={(e) => e.target.select()}
+                                />
+                                <button
+                                    onClick={selectAndCopyUrl}
+                                    className="ml-2 px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white rounded-md shadow-sm transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-purple-500 text-xs"
+                                    title="Select All and Copy URL"
+                                >
+                                    Copy
+                                </button>
+                            </div>
+                        )}
+
+                        {/* User Message Display */}
+                        {userMessage && (
+                            <div className="mb-4 p-3 bg-yellow-600 bg-opacity-80 rounded-lg text-white text-center font-semibold">
+                                {userMessage}
+                            </div>
+                        )}
+
+                        {/* Main Inputs Section */}
+                        <div className="mb-8 p-4 bg-white bg-opacity-15 rounded-lg shadow-inner border border-gray-300 border-opacity-30">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* New: Entity Name Input */}
+                                <div>
+                                    <label htmlFor="entityName" className="block text-xl font-semibold mb-2 text-white">
+                                        Entity Name:
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="entityName"
+                                        value={entityName}
+                                        onChange={handleEntityNameChange}
+                                        onBlur={saveNewSnapshot}
+                                        onFocus={handleInputFocus}
+                                        ref={el => inputRefs.current['entityName'] = el}
+                                        className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                        placeholder="e.g., My Community Hub"
+                                    />
+                                    <p className="text-sm text-gray-300 mt-2">
+                                        Name of the organization or community.
+                                    </p>
+                                </div>
+                                {/* New: Entity Location Input */}
+                                <div>
+                                    <label htmlFor="entityLocation" className="block text-xl font-semibold mb-2 text-white">
+                                        Entity Location:
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="entityLocation"
+                                        value={entityLocation}
+                                        onChange={handleEntityLocationChange}
+                                        onBlur={saveNewSnapshot}
+                                        onFocus={handleInputFocus}
+                                        ref={el => inputRefs.current['entityLocation'] = el}
+                                        className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                        placeholder="e.g., Auckland, NZ"
+                                    />
+                                    <p className="text-sm text-gray-300 mt-2">
+                                        Geographical location of the entity.
+                                    </p>
+                                </div>
+                                {/* Total People in Area Input */}
+                                <div className="relative">
+                                    {totalPeopleInAreaError && (
+                                        <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                            {totalPeopleInAreaError}
+                                        </div>
+                                    )}
+                                    <label htmlFor="totalPeopleInArea" className="block text-xl font-semibold mb-2 text-white"
+                                        title="The total number of people residing in the area (or inside the organization) which would be covered by the hub license">
+                                        Total number of people in Hub area or organization: <span className="text-yellow-300">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="totalPeopleInArea"
+                                        value={displayTotalPeople}
+                                        onChange={handleTotalPeopleInAreaChange}
+                                        onBlur={handleTotalPeopleInAreaBlur}
+                                        onFocus={handleTotalPeopleInAreaFocus}
+                                        ref={el => inputRefs.current['totalPeopleInArea'] = el}
+                                        className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                        placeholder="Enter total people"
+                                    />
+                                    <p className="text-sm text-gray-300 mt-2">
+                                        Total population or members in your target area.
+                                    </p>
+                                </div>
+                                {/* % you wish to target Input */}
+                                <div className="relative">
+                                    {targetPercentageError && (
+                                        <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                            {targetPercentageError}
+                                        </div>
+                                    )}
+                                    <label htmlFor="targetPercentage" className="block text-xl font-semibold mb-2 text-white"
+                                        title="This is the percent of the total you aim to target over the months below. The formula ramps up to this number in equal cumulative amounts each month. This is shown in the variable costs calculation in the table below">
+                                        % you wish to target (final month): <span className="text-yellow-300">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            id="targetPercentage"
+                                            value={targetPercentage}
+                                            onChange={handleTargetPercentageChange}
+                                            onBlur={saveNewSnapshot}
+                                            onFocus={handleInputFocus}
+                                            ref={el => inputRefs.current['targetPercentage'] = el}
+                                            min="0"
+                                            max="100"
+                                            step="0.01"
+                                            className="w-full p-3 pr-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                            placeholder="Enter target percentage"
+                                        />
+                                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                    </div>
+                                    {totalPeopleInArea > 0 && (
+                                        <p className="text-sm text-gray-300 mt-2">
+                                            Number to target (final month): {formatWholeNumberSwedish(finalMonthTargetedPeople)}
+                                        </p>
+                                    )}
+                                </div>
+                                {/* Timeframe Input (half width) */}
+                                <div className="relative">
+                                    {timeframeMonthsError && (
+                                        <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                            {timeframeMonthsError}
+                                        </div>
+                                    )}
+                                    <label htmlFor="timeframeMonths" className="block text-xl font-semibold mb-2 text-white"
+                                        title="This is the number of months you expect it to take to hit the Target above">
+                                        Timeframe (Months): <span className="text-yellow-300">*</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="timeframeMonths"
+                                        value={timeframeMonths}
+                                        onChange={handleTimeframeChange}
+                                        onBlur={saveNewSnapshot}
+                                        onFocus={handleInputFocus}
+                                        ref={el => inputRefs.current['timeframeMonths'] = el}
+                                        min="0"
+                                        step="0.1"
+                                        className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                        placeholder="Enter number of months"
+                                    />
+                                    <p className="text-sm text-gray-300 mt-2">
+                                        Total cost will be calculated over this many months (fractions allowed).
+                                    </p>
+                                </div>
+                                {/* Benefit to wider community, per member of population Input */}
+                                <div className="relative">
+                                    {benefitPerSignupError && (
+                                        <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                            {benefitPerSignupError}
+                                        </div>
+                                    )}
+                                    <label htmlFor="benefitPerSignup" className="block text-xl font-semibold mb-2 text-white"
+                                        title="This is the estimated non tangible benefit to wider the population and local economy by operating this hub, including democratic issue resolution, less political interference and so on">
+                                        Benefit to wider community, per member of population ({selectedCurrency}): <span className="text-yellow-300">*</span>
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                        <input
+                                            type="text"
+                                            id="benefitPerSignup"
+                                            value={benefitPerSignup.toFixed(2)} /* Display directly from state, no conversion */
+                                            onChange={handleBenefitPerSignupChange}
+                                            onBlur={saveNewSnapshot}
+                                            onFocus={handleInputFocus}
+                                            ref={el => inputRefs.current['benefitPerSignup'] = el}
+                                            min="0"
+                                            step="0.01"
+                                            className="w-full p-3 pl-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                            placeholder="Enter benefit per population member"
+                                        />
+                                    </div>
+                                    <p className="text-sm text-gray-300 mt-2">
+                                        This is the estimated non tangible benefit to wider the population and local economy by operating this hub, including democratic issue resolution, less political interference, anti-corruption, togetherness and so on.
+                                    </p>
+                                </div>
+
+                                {/* Hub Receives Section */}
+                                <div className="md:col-span-2 mt-6 p-4 bg-white bg-opacity-15 rounded-lg shadow-inner border border-gray-300 border-opacity-30">
+                                    <h2 className="text-2xl font-bold mb-4 text-white">Hub Receives:</h2>
+
+                                    {/* Donations Hub Receive Subsection */}
+                                    <div className="mb-6">
+                                        <h3 className="text-xl font-semibold mb-3 text-white">Donations Hub Receive:</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* Average Donation Input */}
+                                            <div className="relative">
+                                                {monthlyDonationAmountPerPayerError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {monthlyDonationAmountPerPayerError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="monthlyDonationAmountPerPayer" className="block text-xl font-semibold mb-2 text-white">
+                                                    Average Donation ({selectedCurrency}):
+                                                </label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                                    <input
+                                                        type="text"
+                                                        id="monthlyDonationAmountPerPayer"
+                                                        value={monthlyDonationAmountPerPayer.toFixed(2)} /* Display directly from state */
+                                                        onChange={handleMonthlyDonationAmountPerPayerChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['monthlyDonationAmountPerPayer'] = el}
+                                                        min="0"
+                                                        step="0.01"
+                                                        className="w-full p-3 pl-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Average donation"
+                                                    />
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Average monthly donation from wider community.
+                                                </p>
+                                            </div>
+                                            {/* Percent donating Input */}
+                                            <div className="relative">
+                                                {percentageOfTargetPayingDonationsError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {percentageOfTargetPayingDonationsError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="percentageOfTargetPayingDonations" className="block text-xl font-semibold mb-2 text-white"
+                                                    title="Percentage of those in the targeted population who make a donation.">
+                                                    Percent donating:
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        id="percentageOfTargetPayingDonations"
+                                                        value={percentageOfTargetPayingDonations}
+                                                        onChange={handlePercentageOfTargetPayingDonationsChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['percentageOfTargetPayingDonations'] = el}
+                                                        min="0"
+                                                        max="100"
+                                                        step="0.01"
+                                                        className="w-full p-3 pr-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Enter percentage"
+                                                    />
+                                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    % of those approached who donate.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Advertising Hub Receives Subsection */}
+                                    <div className="mb-6">
+                                        <h3 className="text-xl font-semibold mb-3 text-white">Advertising Hub Receives:</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* Hub Advertising Rate Input */}
+                                            <div className="relative">
+                                                {hubAdvertisingRatePer10kPeopleError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {hubAdvertisingRatePer10kPeopleError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="hubAdvertisingRatePer10kPeople" className="block text-xl font-semibold mb-2 text-white"
+                                                    title="The advertising or sponsorship money you could receive per month for each 10,000 people on the platform. This amount is entirely up to to you, but sponsorship or ads cannot conflict with the site content.">
+                                                    Hub Advertising Rate ({selectedCurrency} per 10,000 people): <span className="text-yellow-300">*</span>
+                                                </label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                                    <input
+                                                        type="text"
+                                                        id="hubAdvertisingRatePer10kPeople"
+                                                        value={hubAdvertisingRatePer10kPeople.toFixed(2)} /* Display directly from state */
+                                                        onChange={handleHubAdvertisingRatePer10kPeopleChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['hubAdvertisingRatePer10kPeople'] = el}
+                                                        min="0"
+                                                        step="0.01"
+                                                        className="w-full p-3 pl-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Rate per 10,000 people"
+                                                    />
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Per 10,000 people on the system.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Subscriptions Hub Receives Subsection */}
+                                    <div>
+                                        <h3 className="text-xl font-semibold mb-3 text-white">Subscriptions Hub Receives:</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* New: Subscription Rate Input */}
+                                            <div className="relative">
+                                                {subscriptionRateError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {subscriptionRateError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="subscriptionRate" className="block text-xl font-semibold mb-2 text-white"
+                                                    title="You will require your own membership software for this">
+                                                    Subscription Rate ({selectedCurrency}):
+                                                </label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                                    <input
+                                                        type="text"
+                                                        id="subscriptionRate"
+                                                        value={subscriptionRate.toFixed(2)} /* Display directly from state */
+                                                        onChange={handleSubscriptionRateChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['subscriptionRate'] = el}
+                                                        min="0"
+                                                        step="0.01"
+                                                        className="w-full p-3 pl-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Subscription rate"
+                                                    />
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Average amount paid by monthly subscribers/members contributing to hub/ trust.
+                                                </p>
+                                            </div>
+                                            {/* New: Conversion Rate Input */}
+                                            <div className="relative">
+                                                {conversionRateError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {conversionRateError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="conversionRate" className="block text-xl font-semibold mb-2 text-white">
+                                                    Conversion Rate (% of targeted people):
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        id="conversionRate"
+                                                        value={conversionRate}
+                                                        onChange={handleConversionRateChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['conversionRate'] = el}
+                                                        min="0"
+                                                        max="100"
+                                                        step="0.01"
+                                                        className="w-full p-3 pr-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Conversion rate"
+                                                    />
+                                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Percentage of targeted people who become paying subscribers.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Council Revenue Section */}
+                                    <div>
+                                        <h3 className="text-xl font-semibold mb-3 text-white">Council Revenue:</h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            {/* Number of Local Councils Input */}
+                                            <div className="relative">
+                                                {numberOfCouncilsError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {numberOfCouncilsError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="numberOfCouncils" className="block text-xl font-semibold mb-2 text-white">
+                                                    How many local councils in this area?
+                                                </label>
+                                                <input
+                                                    type="text"
+                                                    id="numberOfCouncils"
+                                                    value={numberOfCouncils}
+                                                    onChange={handleNumberOfCouncilsChange}
+                                                    onBlur={saveNewSnapshot}
+                                                    onFocus={handleInputFocus}
+                                                    ref={el => inputRefs.current['numberOfCouncils'] = el}
+                                                    min="0"
+                                                    step="1"
+                                                    className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                    placeholder="Number of councils"
+                                                />
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Default: {customRoundForCouncils(totalPeopleInArea / 200000)} (1 per 200,000 people, custom rounded).
+                                                </p>
+                                            </div>
+                                            {/* When could this be implemented with the council(s)? */}
+                                            <div>
+                                                <label htmlFor="councilMonthsOption" className="block text-xl font-semibold mb-2 text-white">
+                                                    When could this be implemented with the council(s)?
+                                                </label>
+                                                <select
+                                                    id="councilMonthsOption"
+                                                    value={councilMonthsOption}
+                                                    onChange={handleCouncilMonthsOptionChange}
+                                                    onBlur={saveNewSnapshot}
+                                                    onFocus={handleInputFocus}
+                                                    ref={el => inputRefs.current['councilMonthsOption'] = el}
+                                                    className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                >
+                                                    <option value="never">Never</option>
+                                                    <option value="0">Prior to launch (0 months)</option>
+                                                    {Array.from({ length: Math.max(0, Math.floor(timeframeMonths)) }, (_, i) => i + 1)
+                                                        .filter(monthNum => monthNum <= timeframeMonths)
+                                                        .map(monthNum => (
+                                                        <option key={monthNum} value={monthNum.toString()}>{monthNum} month{monthNum !== 1 ? 's' : ''}</option>
+                                                    ))}
+                                                </select>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Select when council revenue is expected to start.
+                                                </p>
+                                            </div>
+                                            {/* Estimated average monthly revenue per Council */}
+                                            <div className="relative">
+                                                {councilMonthlyRevenueError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {councilMonthlyRevenueError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="councilMonthlyRevenue" className="block text-xl font-semibold mb-2 text-white">
+                                                    Estimated average monthly revenue per Council ({selectedCurrency}):
+                                                </label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                                    <input
+                                                        type="text"
+                                                        id="councilMonthlyRevenue"
+                                                        value={councilMonthlyRevenue.toFixed(2)} /* Display directly from state */
+                                                        onChange={handleCouncilMonthlyRevenueChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['councilMonthlyRevenue'] = el}
+                                                        min="0"
+                                                        step="0.01"
+                                                        className="w-full p-3 pl-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Monthly revenue per council"
+                                                        disabled={councilMonthsOption === 'never'}
+                                                    />
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Expected monthly revenue from each council.
+                                                </p>
+                                            </div>
+                                            {/* Expected % boost that council will make? */}
+                                            <div className="relative">
+                                                {councilBoostError && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {councilBoostError}
+                                                    </div>
+                                                )}
+                                                <label htmlFor="councilBoost" className="block text-xl font-semibold mb-2 text-white"
+                                                    title="100% means it will not have any boost, 200% means it will double the impact, 0% means it will negate all the revenue sources">
+                                                    Expected % boost that council will make?
+                                                </label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        id="councilBoost"
+                                                        value={councilBoost}
+                                                        onChange={handleCouncilBoostChange}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current['councilBoost'] = el}
+                                                        min="0"
+                                                        step="0.01"
+                                                        className="w-full p-3 pr-7 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400 transition duration-200"
+                                                        placeholder="Boost percentage"
+                                                        disabled={councilMonthsOption === 'never'}
+                                                    />
+                                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                                </div>
+                                                <p className="text-sm text-gray-300 mt-2">
+                                                    Percentage increase to other revenues (Donations, Advertising, Subscriptions).
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Components List */}
+                        <div className="mb-8">
+                            <div className="flex items-center mb-4">
+                                <h2 className="2xl font-bold text-white mr-4">Components (Variable Costs):</h2>
+                                <span className={`text-xl font-semibold ${ratioStatusClass}`}>
+                                    {ratioMessage}
+                                </span>
+                            </div>
+                            <div className="space-y-4">
+                                {/* Use calculatedComponents for rendering to display derived values */}
+                                {calculatedComponents.map(comp => (
+                                    <div key={comp.id} className="flex flex-col md:flex-row items-center bg-white bg-opacity-15 rounded-lg p-4 shadow-md border border-gray-300 border-opacity-30">
+                                        <div className="flex-grow grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+                                            {/* Component Name Input */}
+                                            <div>
+                                                <label htmlFor={`name-${comp.id}`} className="block text-sm font-medium text-gray-200">Name</label>
+                                                <input
+                                                    type="text"
+                                                    id={`name-${comp.id}`}
+                                                    value={comp.name}
+                                                    onChange={(e) => handleComponentNameChange(comp.id, e)}
+                                                    onBlur={saveNewSnapshot}
+                                                    onFocus={handleInputFocus}
+                                                    ref={el => inputRefs.current[`name-${comp.id}`] = el}
+                                                    className="w-full p-2 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                    placeholder="Component Name"
+                                                />
+                                            </div>
+                                            {/* Base Ratio Input */}
+                                            <div className="relative">
+                                                {componentRatioError[comp.id] && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {componentRatioError[comp.id]}
+                                                    </div>
+                                                )}
+                                                <label htmlFor={`ratio-${comp.id}`} className="block text-sm font-medium text-gray-200">Base Ratio % of total</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type="text"
+                                                        id={`ratio-${comp.id}`}
+                                                        value={comp.baseRatio}
+                                                        onChange={(e) => handleComponentRatioChange(comp.id, e)}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current[`ratio-${comp.id}`] = el}
+                                                        className="w-full p-2 pr-7 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                        placeholder="Ratio"
+                                                    />
+                                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                                                </div>
+                                            </div>
+                                            {/* Cost Per Unit Input */}
+                                            <div className="relative">
+                                                {costPerUnitError[comp.id] && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {costPerUnitError[comp.id]}
+                                                    </div>
+                                                )}
+                                                <label htmlFor={`cost-${comp.id}`} className="block text-sm font-medium text-gray-200">Cost Per Unit ({selectedCurrency})</label>
+                                                <div className="relative">
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">$</span>
+                                                    <input
+                                                        type="text"
+                                                        id={`cost-${comp.id}`}
+                                                        value={comp.costPerUnit.toFixed(2)} /* Display directly from state */
+                                                        onChange={(e) => handleCostPerUnitChange(comp.id, e)}
+                                                        onBlur={saveNewSnapshot}
+                                                        onFocus={handleInputFocus}
+                                                        ref={el => inputRefs.current[`cost-${comp.id}`] = el}
+                                                        min="0"
+                                                        step="0.01"
+                                                        className="w-full p-2 pl-7 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                        placeholder="Cost"
+                                                    />
+                                                </div>
+                                            </div>
+                                            {/* Calculated Quantity & Total Cost Display */}
+                                            <div>
+                                                <label htmlFor={`qty-cost-${comp.id}`} className="block text-sm font-medium text-gray-200">Qty / Total Cost</label>
+                                                <input
+                                                    type="text"
+                                                    id={`qty-cost-${comp.id}`}
+                                                    value={`${formatNumber(comp.calculatedQuantity)} / ${formatCurrency(comp.totalCost, selectedCurrency)}`} /* Display directly from state */
+                                                    readOnly
+                                                    className="w-full p-2 rounded-md bg-gray-600 bg-opacity-50 text-white border border-gray-500 cursor-not-allowed"
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Remove Component Button */}
+                                        <button
+                                            onClick={() => removeComponent(comp.id)}
+                                            className="mt-4 md:mt-0 md:ml-4 p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                            title="Remove Component"
+                                        >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
+                                                </svg>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                            {/* Add Component Button */}
+                            <button
+                                onClick={addComponent}
+                                className="mt-6 w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-center"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                                </svg>
+                                Add Component
+                            </button>
+                        </div>
+
+                        {/* Fixed Monthly Costs Section */}
+                        <div className="mb-8 p-4 bg-white bg-opacity-15 rounded-lg shadow-inner border border-gray-300 border-opacity-30">
+                            <h2 className="text-2xl font-bold mb-4 text-white">Fixed Monthly Costs:</h2>
+                            <div className="space-y-4">
+                                {/* Use currentFixedCosts for rendering fixed costs */}
+                                {currentFixedCosts.map(item => (
+                                    <div key={item.id} className="flex flex-col md:flex-row items-center bg-white bg-opacity-15 rounded-lg p-4 shadow-md border border-gray-300 border-opacity-30">
+                                        <div className="flex-grow grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 w-full">
+                                            {/* Fixed Cost Name Input */}
+                                            <div>
+                                                <label htmlFor={`fixed-name-${item.id}`} className="block text-sm font-medium text-gray-200">Name</label>
+                                                <input
+                                                    type="text"
+                                                    id={`fixed-name-${item.id}`}
+                                                    value={item.name}
+                                                    onChange={(e) => handleFixedCostNameChange(item.id, e)}
+                                                    onBlur={saveNewSnapshot}
+                                                    onFocus={handleInputFocus}
+                                                    ref={el => inputRefs.current[`fixed-name-${item.id}`] = el}
+                                                    className="w-full p-2 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                    placeholder="Fixed Cost Name"
+                                                    readOnly={item.id === COUNCIL_FIXED_COST_ID}
+                                                />
+                                            </div>
+                                            {/* Fixed Cost Monthly Amount Input */}
+                                            <div className="relative">
+                                                {fixedCostAmountError[item.id] && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {fixedCostAmountError[item.id]}
+                                                    </div>
+                                                )}
+                                                <label htmlFor={`fixed-amount-${item.id}`} className="block text-sm font-medium text-gray-200">Monthly Amount ({selectedCurrency})</label>
+                                                <input
+                                                    type="text"
+                                                    id={`fixed-amount-${item.id}`}
+                                                    value={displayFixedCostAmounts.get(item.id) !== undefined ? displayFixedCostAmounts.get(item.id) : item.amount.toFixed(2)} /* Display directly from state */
+                                                    onChange={(e) => handleFixedCostAmountChange(item.id, e)}
+                                                    onBlur={() => handleFixedCostAmountBlur(item.id)}
+                                                    onFocus={(e) => handleFixedCostAmountFocus(item.id, e)}
+                                                    ref={el => inputRefs.current[`fixed-amount-${item.id}`] = el}
+                                                    className="w-full p-2 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                    placeholder="Amount"
+                                                    readOnly={item.id === COUNCIL_FIXED_COST_ID}
+                                                />
+                                            </div>
+                                            {/* Fixed Cost Total Over Timeframe Input */}
+                                            <div className="relative">
+                                                {fixedCostTotalOverTimeframeError[item.id] && (
+                                                    <div className="absolute -top-6 left-0 w-full text-white bg-black border border-white rounded-md px-2 py-1 text-sm font-medium animate-pulse z-10">
+                                                        {fixedCostTotalOverTimeframeError[item.id]}
+                                                    </div>
+                                                )}
+                                                <label className="block text-sm font-medium text-gray-200">Total over {timeframeMonths.toFixed(1)} Months ({selectedCurrency})</label>
+                                                <input
+                                                    type="text"
+                                                    id={`fixed-total-${item.id}`}
+                                                    value={displayFixedCostTotals.get(item.id) !== undefined ? displayFixedCostTotals.get(item.id) : formatCurrency(item.amount * timeframeMonths, selectedCurrency)} /* Display directly from state */
+                                                    onChange={(e) => handleFixedCostTotalOverTimeframeChange(item.id, e)}
+                                                    onBlur={() => handleFixedCostTotalOverTimeframeBlur(item.id)}
+                                                    onFocus={(e) => handleFixedCostTotalOverTimeframeFocus(item.id, e)}
+                                                    ref={el => inputRefs.current[`fixed-total-${item.id}`] = el}
+                                                    className="w-full p-2 rounded-md bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                                    placeholder="Total"
+                                                    step="0.01"
+                                                    readOnly={item.id === COUNCIL_FIXED_COST_ID}
+                                                />
+                                            </div>
+                                        </div>
+                                        {/* Remove Fixed Cost Button (hide for "Dealing with councils") */}
+                                        {item.id !== COUNCIL_FIXED_COST_ID && (
+                                            <button
+                                                onClick={() => removeFixedCost(item.id)}
+                                                className="mt-4 md:mt-0 md:ml-4 p-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-red-500"
+                                                title="Remove Fixed Cost"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm6 0a1 1 0 012 0v6a1 1 0 11-2 0V8z" clipRule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            {/* Descriptive Text for Fixed Costs */}
+                            <p className="text-sm text-gray-300 mt-2 text-center">
+                                You can change either the monthly amount or the total amount.
+                            </p>
+                            {/* Add Fixed Cost Button */}
+                            <button
+                                onClick={addFixedCost}
+                                className="mt-6 w-full p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-md transition duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center justify-center"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                                </svg>
+                                Add Fixed Cost
+                            </button>
+                        </div>
+
+
+                        {/* Summary and Visualization */}
+                        <div className="p-4 bg-white bg-opacity-15 rounded-lg shadow-inner border border-gray-300 border-opacity-30">
+                            <h2 className="text-2xl font-bold mb-4 text-white">Summary:</h2>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Total number of people in Hub area or organization:</span>
+                                <span className="text-purple-300">{formatWholeNumberSwedish(totalPeopleInArea)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>% you wish to target (final month):</span>
+                                <span className="text-purple-300">{targetPercentage.toFixed(2)}%</span>
+                            </div>
+                            {totalPeopleInArea > 0 && (
+                                <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                    <span>Number to target (final month):</span>
+                                    <span className="text-purple-300">{formatWholeNumberSwedish(finalMonthTargetedPeople)}</span>
+                                </div>
+                            )}
+                            {timeframeMonths > 0 && (
+                                <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                    <span>Monthly ramp-up increment (deduction):</span>
+                                    <span className="text-purple-300">{formatWholeNumberSwedish(monthlyRampUpIncrement)}</span>
+                                </div>
+                            )}
+                            {/* Displaying the final month's target as "Total cumulative targeted people over timeframe" */}
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Total cumulative targeted people over timeframe:</span>
+                                <span className="text-purple-300">{formatWholeNumberSwedish(displayTargetForTimeframe)}</span>
+                            </div>
+                            <div className="flex items-center justify-between mb-3 text-xl font-bold text-white mt-6">
+                                <span>Monthly Revenues:</span>
+                                <span className="text-lime-300">
+                                    Average Monthly Revenue: {formatCurrencyNoCents(totalMonthlyRevenue, selectedCurrency)}
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Donations (per month):</span>
+                                <span className="text-lime-300">
+                                    {formatCurrencyNoCents(donationsMonthly, selectedCurrency)}
+                                    <span className="text-sm text-gray-300 ml-2">
+                                        (Total over {timeframeMonths} months: {formatCurrencyNoCents(totalDonationsOverTimeframe, selectedCurrency)})
+                                        <br />
+                                        Workings: Sum of ({percentageOfTargetPayingDonations}% of Monthly Cumulative Target x {formatCurrency(monthlyDonationAmountPerPayer, selectedCurrency)})
+                                        {councilBoost !== 100 && ` x ${councilBoost}% council boost`}
+                                        <br />
+                                        Average per month: {formatCurrencyNoCents(totalDonationsOverTimeframe / timeframeMonths, selectedCurrency)} / {timeframeMonths}
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Hub Advertising (per month):</span>
+                                <span className="text-lime-300">
+                                    {formatCurrencyNoCents(hubAdvertisingMonthlyCalculated, selectedCurrency)}
+                                    <span className="text-sm text-gray-300 ml-2">
+                                        (Total over {timeframeMonths} months: {formatCurrencyNoCents(totalHubAdvertisingOverTimeframe, selectedCurrency)})
+                                        <br />
+                                        Workings: ({formatCurrency(hubAdvertisingRatePer10kPeople, selectedCurrency)} per 10,000 people x {formatWholeNumberSwedish(finalMonthTargetedPeople)} targeted people)
+                                        {councilBoost !== 100 && ` x ${councilBoost}% council boost`}
+                                        <br />
+                                        Average per month: {formatCurrencyNoCents(totalHubAdvertisingOverTimeframe / timeframeMonths, selectedCurrency)} / {timeframeMonths}
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Subscriptions (per month):</span>
+                                <span className="text-lime-300">
+                                    {formatCurrencyNoCents(subscriptionsMonthlyCalculated, selectedCurrency)}
+                                    <span className="text-sm text-gray-300 ml-2">
+                                        (Total over {timeframeMonths} months: {formatCurrencyNoCents(totalSubscriptionsOverTimeframe, selectedCurrency)})
+                                        <br />
+                                        Workings: Sum of ({conversionRate}% of Monthly Cumulative Target x {formatCurrency(subscriptionRate, selectedCurrency)})
+                                        {councilBoost !== 100 && ` x ${councilBoost}% council boost`}
+                                        <br />
+                                        Average per month: {formatCurrencyNoCents(totalSubscriptionsOverTimeframe / timeframeMonths, selectedCurrency)} / {timeframeMonths}
+                                    </span>
+                                </span>
+                            </div>
+                            {/* New: Council Revenue Display */}
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Council Revenue (per month):</span>
+                                <span className="text-lime-300">
+                                    {formatCurrencyNoCents(councilRevenueMonthlyCalculated, selectedCurrency)}
+                                    <span className="text-sm text-gray-300 ml-2">
+                                        (Total over {timeframeMonths} months: {formatCurrencyNoCents(totalCouncilRevenueOverTimeframe, selectedCurrency)})
+                                        <br />
+                                        Workings: {formatWholeNumberSwedish(numberOfCouncils)} councils x {formatCurrency(councilMonthlyRevenue, selectedCurrency)}/month x {monthlyRevenueData.filter(d => d.councilRevenue > 0).length} months
+                                        <br />
+                                        Average per month: {formatCurrencyNoCents(totalCouncilRevenueOverTimeframe / timeframeMonths, selectedCurrency)} / {timeframeMonths}
+                                    </span>
+                                </span>
+                            </div>
+                            <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                <span>Total Income:</span>
+                                <span className="text-lime-300 text-2xl font-bold">{formatCurrencyNoCents(totalMonthlyRevenue * timeframeMonths, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                <span>Total Benefits to the community:</span>
+                                <span className="text-lime-300">{formatCurrencyNoCents(totalBenefitsToCommunity, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-6 text-xl font-bold">
+                                <span>Combined Income and Benefits:</span>
+                                <span className="text-emerald-300 text-3xl">{formatCurrencyNoCents(combinedIncomeAndBenefits, selectedCurrency)}</span>
+                            </div>
+                            <h3 className="text-xl font-bold mb-3 text-white mt-6">Estimated Monthly Costs:</h3>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Total Variable Cost (per month):</span>
+                                <span className="text-green-300">{formatCurrencyNoCents(overallVariableCost, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Total Fixed Cost (per month):</span>
+                                <span className="text-orange-300">{formatCurrencyNoCents(totalFixedCostsPerMonth, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-semibold">
+                                <span>Total Monthly Cost:</span>
+                                <span className="text-blue-300 text-2xl font-bold">{formatCurrencyNoCents(totalMonthlyCost, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                <span>Average cost per month per person (Variable):</span>
+                                <span className="text-yellow-300">{formatCurrency(averageCostPerUnit, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                <span>Average cost per month per person (Fixed Cost):</span>
+                                <span className="text-yellow-300">{formatCurrency(averageFixedCostPerUnit, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-6 text-xl font-semibold">
+                                <span>Average cost per month per person (Both combined):</span>
+                                <span className="text-yellow-300">{formatCurrency(averageCombinedCostPerUnit, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-bold">
+                                <span>Total Variable Cost over {timeframeMonths.toFixed(1)} Months:</span>
+                                <span className="text-green-300">{formatCurrencyNoCents(totalVariableCostOverTimeframe, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-4 text-xl font-semibold">
+                                <span>Total Fixed Cost over {timeframeMonths.toFixed(1)} Months:</span>
+                                <span className="text-orange-300">{formatCurrencyNoCents(totalFixedCostOverTimeframe, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-6 text-xl font-bold">
+                                <span>Total Cost over {timeframeMonths.toFixed(1)} Months:</span>
+                                <span className="text-pink-300 text-3xl">{formatCurrencyNoCents(totalCostOverTimeframe, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-2 text-xl font-bold">
+                                <span>Net Financial Benefit to Hub:</span>
+                                <span className="text-cyan-300 text-3xl">{formatCurrencyNoCents(netFinancialBenefitToHub, selectedCurrency)}</span>
+                            </div>
+                            <div className="flex justify-between items-center mb-6 text-xl font-bold">
+                                <span>Net Benefit to Hub and wider community:</span>
+                                <span className="text-cyan-300 text-3xl">{formatCurrencyNoCents(netBenefit, selectedCurrency)}</span>
+                            </div>
+
+                            {/* Monthly Revenue Tables */}
+                            <div className="mt-8 space-y-8">
+                                {/* Donations Monthly Table */}
+                                <div>
+                                    <h3 className="text-xl font-bold mb-3 text-white">Donations Monthly Breakdown:</h3>
+                                    <div className="overflow-x-auto rounded-lg shadow-md border border-gray-300 border-opacity-30">
+                                        <table className="min-w-full bg-white bg-opacity-15 text-white">
+                                            <thead>
+                                                <tr className="bg-white bg-opacity-20">
+                                                    <th className="py-2 px-4 text-left font-semibold">Month</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Target</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Calculation</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Total ({selectedCurrency})</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {monthlyRevenueData.map((monthData) => (
+                                                    <tr key={`donations-${monthData.month}`} className="border-t border-gray-300 border-opacity-20">
+                                                        <td className="py-2 px-4">{monthData.month}</td>
+                                                        <td className="py-2 px-4">{formatWholeNumberSwedish(monthData.cumulativeTarget)}</td>
+                                                        <td className="py-2 px-4 text-sm">
+                                                            ({percentageOfTargetPayingDonations}% of {formatWholeNumberSwedish(monthData.cumulativeTarget)} x {formatCurrency(monthlyDonationAmountPerPayer, selectedCurrency)})
+                                                            {councilBoost !== 100 && ` x ${councilBoost}% council boost`}
+                                                        </td>
+                                                        <td className="py-2 px-4">{formatCurrencyNoCents(monthData.donations, selectedCurrency)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Hub Advertising Monthly Table */}
+                                <div>
+                                    <h3 className="text-xl font-bold mb-3 text-white">Hub Advertising Monthly Breakdown:</h3>
+                                    <div className="overflow-x-auto rounded-lg shadow-md border border-gray-300 border-opacity-30">
+                                        <table className="min-w-full bg-white bg-opacity-15 text-white">
+                                            <thead>
+                                                <tr className="bg-white bg-opacity-20">
+                                                    <th className="py-2 px-4 text-left font-semibold">Month</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Target</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Calculation</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Total ({selectedCurrency})</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {monthlyRevenueData.map((monthData) => (
+                                                    <tr key={`hub-ads-${monthData.month}`} className="border-t border-gray-300 border-opacity-20">
+                                                        <td className="py-2 px-4">{monthData.month}</td>
+                                                        <td className="py-2 px-4">{formatWholeNumberSwedish(monthData.cumulativeTarget)}</td>
+                                                        <td className="py-2 px-4 text-sm">
+                                                            ({formatCurrency(hubAdvertisingRatePer10kPeople, selectedCurrency)} per 10,000 people x {formatWholeNumberSwedish(finalMonthTargetedPeople)} targeted people)
+                                                            {councilBoost !== 100 && ` x ${councilBoost}% council boost`}
+                                                        </td>
+                                                        <td className="py-2 px-4">{formatCurrencyNoCents(monthData.hubAdvertising, selectedCurrency)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Subscriptions Monthly Table */}
+                                <div>
+                                    <h3 className="text-xl font-bold mb-3 text-white">Subscriptions Monthly Breakdown:</h3>
+                                    <div className="overflow-x-auto rounded-lg shadow-md border border-gray-300 border-opacity-30">
+                                        <table className="min-w-full bg-white bg-opacity-15 text-white">
+                                            <thead>
+                                                <tr className="bg-white bg-opacity-20">
+                                                    <th className="py-2 px-4 text-left font-semibold">Month</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Target</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Calculation</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Total ({selectedCurrency})</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {monthlyRevenueData.map((monthData) => (
+                                                    <tr key={`subscriptions-${monthData.month}`} className="border-t border-gray-300 border-opacity-20">
+                                                        <td className="py-2 px-4">{monthData.month}</td>
+                                                        <td className="py-2 px-4">{formatWholeNumberSwedish(monthData.cumulativeTarget)}</td>
+                                                        <td className="py-2 px-4 text-sm">
+                                                            ({conversionRate}% of {formatWholeNumberSwedish(monthData.cumulativeTarget)} x {formatCurrency(subscriptionRate, selectedCurrency)})
+                                                            {councilBoost !== 100 && ` x ${councilBoost}% council boost`}
+                                                        </td>
+                                                        <td className="py-2 px-4">{formatCurrencyNoCents(monthData.subscriptions, selectedCurrency)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                {/* Council Revenue Monthly Table */}
+                                <div>
+                                    <h3 className="text-xl font-bold mb-3 text-white">Council Revenue Monthly Breakdown:</h3>
+                                    <div className="overflow-x-auto rounded-lg shadow-md border border-gray-300 border-opacity-30">
+                                        <table className="min-w-full bg-white bg-opacity-15 text-white">
+                                            <thead>
+                                                <tr className="bg-white bg-opacity-20">
+                                                    <th className="py-2 px-4 text-left font-semibold">Month</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Active?</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Calculation</th>
+                                                    <th className="py-2 px-4 text-left font-semibold">Monthly Total ({selectedCurrency})</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {monthlyRevenueData.map((monthData) => (
+                                                    <tr key={`council-revenue-${monthData.month}`} className="border-t border-gray-300 border-opacity-20">
+                                                        <td className="py-2 px-4">{monthData.month}</td>
+                                                        <td className="py-2 px-4">{monthData.councilRevenue > 0 ? 'Yes' : 'No'}</td>
+                                                        <td className="py-2 px-4 text-sm">
+                                                            {monthData.councilRevenue > 0 ? `${formatWholeNumberSwedish(numberOfCouncils)} councils x ${formatCurrency(councilMonthlyRevenue, selectedCurrency)}/month` : 'N/A'}
+                                                        </td>
+                                                        <td className="py-2 px-4">{formatCurrencyNoCents(monthData.councilRevenue, selectedCurrency)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* New: Visual Distribution of Revenue */}
+                            <h3 className="text-xl font-bold mb-3 text-white mt-6">Monthly Average Visual Distribution of Revenue:</h3>
+                            <div className="flex flex-col space-y-2 mb-6">
+                                {totalMonthlyRevenue > 0 && (
+                                    <>
+                                        <div className="flex items-center">
+                                            <span className="w-32 text-sm text-gray-200 truncate">Donations:</span>
+                                            <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                                <div
+                                                    className="h-full bg-lime-400 transition-all duration-300 ease-out rounded-full"
+                                                    style={{ width: `${(donationsMonthly / totalMonthlyRevenue) * 100}%` }}
+                                                    title={`Donations: ${formatCurrency(donationsMonthly, selectedCurrency)}`}
+                                                />
+                                            </div>
+                                            <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatCurrency(donationsMonthly, selectedCurrency)}</span>
+                                        </div>
+                                        <div className="flex items-center">
+                                            <span className="w-32 text-sm text-gray-200 truncate">Hub Advertising:</span>
+                                            <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                                <div
+                                                    className="h-full bg-cyan-400 transition-all duration-300 ease-out rounded-full"
+                                                    style={{ width: `${(hubAdvertisingMonthlyCalculated / totalMonthlyRevenue) * 100}%` }}
+                                                    title={`Hub Advertising: ${formatCurrency(hubAdvertisingMonthlyCalculated, selectedCurrency)}`}
+                                                />
+                                            </div>
+                                            <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatCurrency(hubAdvertisingMonthlyCalculated, selectedCurrency)}</span>
+                                        </div>
+                                        <div className="flex items-center">
+                                            <span className="w-32 text-sm text-gray-200 truncate">Subscriptions:</span>
+                                            <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                                <div
+                                                    className="h-full bg-purple-400 transition-all duration-300 ease-out rounded-full"
+                                                    style={{ width: `${(subscriptionsMonthlyCalculated / totalMonthlyRevenue) * 100}%` }}
+                                                    title={`Subscriptions: ${formatCurrency(subscriptionsMonthlyCalculated, selectedCurrency)}`}
+                                                />
+                                            </div>
+                                            <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatCurrency(subscriptionsMonthlyCalculated, selectedCurrency)}</span>
+                                        </div>
+                                        <div className="flex items-center">
+                                            <span className="w-32 text-sm text-gray-200 truncate">Council Revenue:</span>
+                                            <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                                <div
+                                                    className="h-full bg-yellow-400 transition-all duration-300 ease-out rounded-full"
+                                                    style={{ width: `${(councilRevenueMonthlyCalculated / totalMonthlyRevenue) * 100}%` }}
+                                                    title={`Council Revenue: ${formatCurrency(councilRevenueMonthlyCalculated, selectedCurrency)}`}
+                                                />
+                                            </div>
+                                            <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatCurrency(councilRevenueMonthlyCalculated, selectedCurrency)}</span>
+                                        </div>
+                                    </>
+                                )}
+                                {totalMonthlyRevenue <= 0 && (
+                                    <p className="text-gray-300 text-center">No revenue to display.</p>
+                                )}
+                            </div>
+
+
+                            <h3 className="text-xl font-bold mb-3 text-white mt-6">Visual Distribution (by Quantity):</h3>
+                            <div className="flex flex-col space-y-2 mb-6">
+                                {/* Use calculatedComponents for rendering */}
+                                {calculatedComponents.map(comp => (
+                                    <div key={`qty-bar-${comp.id}`} className="flex items-center">
+                                        <span className="w-32 text-sm text-gray-200 truncate">{comp.name}:</span>
+                                        <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                            <div
+                                                className="h-full bg-teal-400 transition-all duration-300 ease-out rounded-full"
+                                                style={{ width: `${finalMonthTargetedPeople > 0 ? Math.max(0, (comp.calculatedQuantity / finalMonthTargetedPeople) * 100) : 0}%` }}
+                                                title={`${comp.name}: ${formatNumber(comp.calculatedQuantity)} units`}
+                                            />
+                                        </div>
+                                        <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatNumber(comp.calculatedQuantity)}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <h3 className="text-xl font-bold mb-3 text-white">Visual Distribution (by Variable Cost):</h3>
+                            <div className="flex flex-col space-y-2">
+                                {/* Use calculatedComponents for rendering */}
+                                {calculatedComponents.map(comp => (
+                                    <div key={`cost-bar-${comp.id}`} className="flex items-center">
+                                        <span className="w-32 text-sm text-gray-200 truncate">{comp.name}:</span>
+                                        <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                            <div
+                                                className="h-full bg-orange-400 transition-all duration-300 ease-out rounded-full"
+                                                style={{ width: `${overallVariableCost > 0 ? Math.max(0, (comp.totalCost / overallVariableCost) * 100) : 0}%` }}
+                                                title={`${comp.name}: ${formatCurrency(comp.totalCost, selectedCurrency)}`}
+                                            />
+                                        </div>
+                                        <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatCurrency(comp.totalCost, selectedCurrency)}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* New: Visual Distribution (by Fixed Cost) */}
+                            <h3 className="text-xl font-bold mb-3 text-white mt-6">Visual Distribution (by Fixed Cost):</h3>
+                            <div className="flex flex-col space-y-2">
+                                {currentFixedCosts.map(item => (
+                                    <div key={`fixed-cost-bar-${item.id}`} className="flex items-center">
+                                        <span className="w-32 text-sm text-gray-200 truncate">{item.name}:</span>
+                                        <div className="flex-grow h-6 bg-gray-700 rounded-full overflow-hidden ml-2">
+                                            <div
+                                                className="h-full bg-red-400 transition-all duration-300 ease-out rounded-full"
+                                                style={{ width: `${totalFixedCostsPerMonth > 0 ? Math.max(0, (item.amount / totalFixedCostsPerMonth) * 100) : 0}%` }}
+                                                title={`${item.name}: ${formatCurrency(item.amount, selectedCurrency)}`}
+                                            />
+                                        </div>
+                                        <span className="ml-2 text-sm text-gray-200 w-16 text-right">{formatCurrency(item.amount, selectedCurrency)}</span>
+                                    </div>
+                                ))}
+                            </div>
+
+
+                            {/* Warning if total calculated quantity does not match target total due to zero base ratio sum */}
+                            {finalMonthTargetedPeople > 0 && currentCalculatedQuantitySum.toFixed(2) !== finalMonthTargetedPeople.toFixed(2) && totalBaseRatio === 0 && (
+                                <p className="text-red-300 text-sm mt-4">
+                                    Warning: Total calculated quantity does not match target. Please ensure at least one component has a base ratio greater than zero.
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Copyright Notice */}
+                        <div className="mt-8 text-center text-gray-400 text-sm">
+                            <p>
+                                &copy; {new Date().getFullYear()} <a href={copyrightLink} target="_blank" rel="noopener noreferrer" className="text-blue-300 hover:underline">{copyrightText}</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        // Render the App component into the root div
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
